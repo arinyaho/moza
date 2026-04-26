@@ -39,7 +39,7 @@ GOOGLE_DEFAULT_SCOPES = [
 
 
 @click.group()
-@click.version_option()
+@click.version_option(package_name="hat-cli")
 def main() -> None:
     """hat — multi-identity credential router."""
 
