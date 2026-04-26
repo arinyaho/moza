@@ -180,3 +180,29 @@ def test_logout_removes_service(runner, hat_cfg, mocker):
     backend.delete.assert_called_with("ref://gh")
     payload = json.loads(hat_cfg.read_text())
     assert payload["profiles"]["personal"]["github"] is None
+
+
+def test_doctor_runs_health_check(runner, hat_cfg, mocker):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    result = runner.invoke(main, ["doctor"])
+    assert result.exit_code == 0
+    backend.health_check.assert_called_once()
+    assert "OK" in result.output
+
+
+def test_doctor_reports_failure(runner, hat_cfg, mocker):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.side_effect = RuntimeError("boom")
+    result = runner.invoke(main, ["doctor"])
+    assert result.exit_code != 0
+    assert "boom" in result.output
+
+
+def test_doctor_gc_sweeps(runner, hat_cfg, mocker):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    mocker.patch("hat.cli.load_backend").return_value
+    gc = mocker.patch("hat.cli.EphemeralStore.gc")
+    runner.invoke(main, ["doctor", "--gc"])
+    gc.assert_called_once()

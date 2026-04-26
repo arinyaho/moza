@@ -9,6 +9,7 @@ from pathlib import Path
 import click
 
 from hat.backends import load_backend
+from hat.ephemeral import EphemeralStore
 from hat.config import (
     BackendConfig,
     Config,
@@ -319,3 +320,18 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
         prof.slack = kept
     save_config(cfg)
     click.echo(f"removed {service} from {profile_name}")
+
+
+@main.command("doctor")
+@click.option("--gc", is_flag=True, help="Sweep stale ephemeral files for dead PIDs")
+def doctor_cmd(gc: bool) -> None:
+    cfg = _require_config()
+    backend = load_backend(cfg.secrets_backend)
+    try:
+        backend.health_check()
+    except Exception as e:
+        raise click.ClickException(f"backend health check failed: {e}")
+    click.echo(f"backend ({cfg.secrets_backend.type}): OK")
+    if gc:
+        EphemeralStore.gc()
+        click.echo("ephemeral GC: done")
