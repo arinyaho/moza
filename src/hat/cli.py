@@ -7,14 +7,19 @@ from pathlib import Path
 
 import click
 
+from hat.backends import load_backend
 from hat.config import (
     BackendConfig,
     Config,
+    GitHubService,
+    Profile,
     SecretNaming,
+    SlackWorkspace,
     config_path,
     load_config,
     save_config,
 )
+from hat.secret_naming import render_name
 
 
 @click.group()
@@ -128,3 +133,54 @@ def _require_config() -> Config:
     if cfg is None:
         raise click.ClickException("no config — run `hat init` first")
     return cfg
+
+
+@main.command("login")
+@click.argument("profile_name")
+@click.option("--service", type=click.Choice(["google", "github", "slack"]), required=True)
+@click.option("--workspace", help="Slack workspace label (required for --service slack)")
+@click.option("--email", help="(google) account email")
+@click.option("--username", help="(github) username")
+@click.option("--host", default="github.com", help="(github) host (for GHES)")
+@click.option("--client-id", help="(google) OAuth client ID")
+def login_cmd(
+    profile_name: str,
+    service: str,
+    workspace: str | None,
+    email: str | None,
+    username: str | None,
+    host: str,
+    client_id: str | None,
+) -> None:
+    cfg = _require_config()
+    backend = load_backend(cfg.secrets_backend)
+
+    if service == "github":
+        username = username or click.prompt("GitHub username")
+        token = click.prompt("Paste a GitHub token", hide_input=True)
+        ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="token")
+        ref = backend.put(ref_name, token.encode("utf-8"))
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        prof.github = GitHubService(username=username, host=host, token_ref=ref)
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        click.echo(f"stored github token for {profile_name} at {ref}")
+        return
+
+    if service == "slack":
+        if not workspace:
+            raise click.ClickException("--workspace is required for --service slack")
+        token = click.prompt("Paste a Slack user token (xoxp-...)", hide_input=True)
+        ref_name = render_name(cfg.secret_naming.slack_token, profile=profile_name, workspace=workspace)
+        ref = backend.put(ref_name, token.encode("utf-8"))
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        prof.slack = [w for w in prof.slack if w.workspace != workspace]
+        prof.slack.append(SlackWorkspace(workspace=workspace, team_id=None, user_token_ref=ref))
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        click.echo(f"stored slack token for {profile_name}/{workspace} at {ref}")
+        return
+
+    if service == "google":
+        # Implemented in Task 13.
+        raise click.ClickException("google login not yet implemented (see Task 13)")
