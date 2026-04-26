@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,8 +21,10 @@ from hat.config import (
     load_config,
     save_config,
 )
-from hat.oauth import google_installed_app_flow
+from hat.env import build_env
+from hat.oauth import exchange_refresh_token, google_installed_app_flow
 from hat.secret_naming import render_name
+from hat.shell import emit_unset, emit_use
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -227,3 +230,92 @@ def login_cmd(
         save_config(cfg)
         click.echo(f"stored google identity for {profile_name}")
         return
+
+
+@main.command("use")
+@click.argument("profile_name")
+def use_cmd(profile_name: str) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    backend = load_backend(cfg.secrets_backend)
+    bundle = build_env(prof, backend)
+    sys.stdout.write(emit_use(bundle))
+
+
+@main.command("unset")
+def unset_cmd() -> None:
+    sys.stdout.write(emit_unset())
+
+
+@main.command("exec", context_settings={"ignore_unknown_options": True})
+@click.argument("profile_name")
+@click.argument("argv", nargs=-1, required=True)
+def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    backend = load_backend(cfg.secrets_backend)
+    bundle = build_env(prof, backend)
+    env = {**os.environ, **bundle.env}
+    rc = subprocess.call(list(argv), env=env)
+    sys.exit(rc)
+
+
+@main.command("token")
+@click.argument("service", type=click.Choice(["google"]))
+def token_cmd(service: str) -> None:
+    cfg = _require_config()
+    name = os.environ.get("HAT_PROFILE")
+    if not name:
+        raise click.ClickException("HAT_PROFILE not set; run `eval \"$(hat use <profile>)\"` first")
+    prof = cfg.profiles.get(name)
+    if not prof or not prof.google:
+        raise click.ClickException(f"profile {name!r} has no google identity")
+    backend = load_backend(cfg.secrets_backend)
+    g = prof.google
+    client_secret = backend.get(g.oauth_client_secret_ref).decode("utf-8")
+    refresh = backend.get(g.refresh_token_ref).decode("utf-8")
+    access = exchange_refresh_token(
+        client_id=g.oauth_client_id,
+        client_secret=client_secret,
+        refresh_token=refresh,
+    )
+    click.echo(access)
+
+
+@main.command("logout")
+@click.argument("profile_name")
+@click.option("--service", type=click.Choice(["google", "github", "slack"]), required=True)
+@click.option("--workspace", help="Slack workspace label (required for --service slack)")
+def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    backend = load_backend(cfg.secrets_backend)
+    if service == "github" and prof.github:
+        backend.delete(prof.github.token_ref)
+        prof.github = None
+    elif service == "google" and prof.google:
+        if prof.google.refresh_token_ref:
+            backend.delete(prof.google.refresh_token_ref)
+        if prof.google.oauth_client_secret_ref:
+            backend.delete(prof.google.oauth_client_secret_ref)
+        if prof.google.adc_ref:
+            backend.delete(prof.google.adc_ref)
+        prof.google = None
+    elif service == "slack":
+        if not workspace:
+            raise click.ClickException("--workspace required for --service slack")
+        kept = []
+        for w in prof.slack:
+            if w.workspace == workspace:
+                backend.delete(w.user_token_ref)
+            else:
+                kept.append(w)
+        prof.slack = kept
+    save_config(cfg)
+    click.echo(f"removed {service} from {profile_name}")

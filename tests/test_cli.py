@@ -126,3 +126,57 @@ def test_login_google_runs_oauth_and_stores(runner, hat_cfg, mocker):
     assert g["refresh_token_ref"] == "ref://refresh"
     assert g["oauth_client_secret_ref"] == "ref://oauth-secret"
     assert g["gcloud_config_name"] == "personal"
+
+
+def test_use_emits_exports(runner, hat_cfg, mocker):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    runner.invoke(main, ["login", "personal", "--service", "github"], input="me\nghp_xxx\n")
+
+    backend.get.return_value = b"ghp_xxx"
+    result = runner.invoke(main, ["use", "personal"])
+    assert result.exit_code == 0
+    assert "export HAT_PROFILE='personal'" in result.output
+    assert "export GH_TOKEN='ghp_xxx'" in result.output
+
+
+def test_unset_emits_unsets(runner, hat_cfg):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(main, ["unset"])
+    assert "unset HAT_PROFILE" in result.output
+
+
+def test_token_google_prints_access_token(runner, hat_cfg, mocker):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.side_effect = ["ref://oauth", "ref://refresh"]
+    backend.get.side_effect = lambda r: {
+        "ref://oauth": b"csec",
+        "ref://refresh": b"refresh-zzz",
+    }[r]
+    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("hat.cli.exchange_refresh_token", return_value="ya29-access")
+
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "google",
+         "--email", "me@x.com", "--client-id", "cid"],
+        input="csec\n",
+    )
+
+    result = runner.invoke(main, ["token", "google"], env={"HAT_PROFILE": "personal", "HAT_CONFIG": str(hat_cfg)})
+    assert result.exit_code == 0
+    assert "ya29-access" in result.output
+
+
+def test_logout_removes_service(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    runner.invoke(main, ["login", "personal", "--service", "github"], input="me\ntok\n")
+    result = runner.invoke(main, ["logout", "personal", "--service", "github"])
+    assert result.exit_code == 0
+    backend.delete.assert_called_with("ref://gh")
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["profiles"]["personal"]["github"] is None
