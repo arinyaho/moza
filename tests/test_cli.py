@@ -99,3 +99,30 @@ def test_login_slack_appends_workspace(runner, hat_cfg, mocker):
     workspaces = payload["profiles"]["personal"]["slack"]
     assert [w["workspace"] for w in workspaces] == ["team-a", "team-b"]
     assert workspaces[0]["user_token_ref"] == "ref://slack-a"
+
+
+def test_login_google_runs_oauth_and_stores(runner, hat_cfg, mocker):
+    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.side_effect = [
+        "ref://oauth-secret",
+        "ref://refresh",
+    ]
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        [
+            "login", "personal", "--service", "google",
+            "--email", "me@example.com",
+            "--client-id", "cid",
+        ],
+        input="csec\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    g = payload["profiles"]["personal"]["google"]
+    assert g["email"] == "me@example.com"
+    assert g["oauth_client_id"] == "cid"
+    assert g["refresh_token_ref"] == "ref://refresh"
+    assert g["oauth_client_secret_ref"] == "ref://oauth-secret"
+    assert g["gcloud_config_name"] == "personal"

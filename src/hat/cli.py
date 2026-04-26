@@ -12,6 +12,7 @@ from hat.config import (
     BackendConfig,
     Config,
     GitHubService,
+    GoogleService,
     Profile,
     SecretNaming,
     SlackWorkspace,
@@ -19,7 +20,18 @@ from hat.config import (
     load_config,
     save_config,
 )
+from hat.oauth import google_installed_app_flow
 from hat.secret_naming import render_name
+
+
+GOOGLE_DEFAULT_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/cloud-platform",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+]
 
 
 @click.group()
@@ -182,5 +194,36 @@ def login_cmd(
         return
 
     if service == "google":
-        # Implemented in Task 13.
-        raise click.ClickException("google login not yet implemented (see Task 13)")
+        email = email or click.prompt("Google account email")
+        client_id = client_id or click.prompt("OAuth client ID")
+        client_secret = click.prompt("OAuth client secret", hide_input=True)
+
+        refresh = google_installed_app_flow(
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=GOOGLE_DEFAULT_SCOPES,
+        )
+        oauth_secret_ref = backend.put(
+            render_name(cfg.secret_naming.default, profile=profile_name, service="google", kind="oauth_client_secret"),
+            client_secret.encode("utf-8"),
+        )
+        refresh_ref = backend.put(
+            render_name(cfg.secret_naming.default, profile=profile_name, service="google", kind="refresh"),
+            refresh.encode("utf-8"),
+        )
+
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        prof.google = GoogleService(
+            email=email,
+            oauth_client_id=client_id,
+            oauth_client_secret_ref=oauth_secret_ref,
+            refresh_token_ref=refresh_ref,
+            adc_ref=None,
+            gcloud_config_name=profile_name,
+            default_project=None,
+            gcloud_login_required=False,
+        )
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        click.echo(f"stored google identity for {profile_name}")
+        return
