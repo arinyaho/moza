@@ -17,7 +17,8 @@ from hat.env import build_env
 def fake_backend():
     b = MagicMock()
     b.get.side_effect = lambda ref: {
-        "adc-ref": b'{"client_id":"abc"}',
+        "refresh-ref": b"refresh-tok",
+        "csec-ref": b"client-secret-val",
         "gh-token-ref": b"ghp_xxx",
         "slack-team-a-ref": b"xoxp-aaa",
         "slack-team-b-ref": b"xoxp-bbb",
@@ -25,16 +26,16 @@ def fake_backend():
     return b
 
 
-def test_google_only_profile(monkeypatch, tmp_path, fake_backend):
+def test_google_synthesizes_adc_from_refresh_token(monkeypatch, tmp_path, fake_backend):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     prof = Profile(
         name="personal",
         google=GoogleService(
             email="me@x.com",
-            oauth_client_id="cid",
-            oauth_client_secret_ref=None,
+            oauth_client_id="cid-123",
+            oauth_client_secret_ref="csec-ref",
             refresh_token_ref="refresh-ref",
-            adc_ref="adc-ref",
+            adc_ref=None,
             gcloud_config_name="personal",
             default_project="myproj",
             gcloud_login_required=False,
@@ -47,11 +48,17 @@ def test_google_only_profile(monkeypatch, tmp_path, fake_backend):
     assert env["CLOUDSDK_CORE_PROJECT"] == "myproj"
     adc_path = Path(env["GOOGLE_APPLICATION_CREDENTIALS"])
     assert adc_path.exists()
-    assert adc_path.read_text() == '{"client_id":"abc"}'
+    payload = json.loads(adc_path.read_text())
+    assert payload == {
+        "type": "authorized_user",
+        "client_id": "cid-123",
+        "client_secret": "client-secret-val",
+        "refresh_token": "refresh-tok",
+    }
     assert (adc_path.stat().st_mode & 0o777) == 0o600
     assert "GH_TOKEN" not in env
     assert "HAT_SLACK_TOKENS" not in env
-    fake_backend.get.assert_called_once_with("adc-ref")
+    assert fake_backend.get.call_count == 2  # refresh_token_ref + oauth_client_secret_ref
 
 
 def test_skips_adc_when_login_required(monkeypatch, tmp_path, fake_backend):

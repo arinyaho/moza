@@ -29,9 +29,22 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
         bundle.env["CLOUDSDK_ACTIVE_CONFIG_NAME"] = g.gcloud_config_name
         if g.default_project:
             bundle.env["CLOUDSDK_CORE_PROJECT"] = g.default_project
-        if g.adc_ref and not g.gcloud_login_required:
-            adc = backend.get(g.adc_ref)
-            adc_path = store.write(profile=profile.name, kind="adc", data=adc)
+        if (
+            g.refresh_token_ref
+            and g.oauth_client_secret_ref
+            and not g.gcloud_login_required
+        ):
+            refresh = backend.get(g.refresh_token_ref).decode("utf-8").strip()
+            client_secret = backend.get(g.oauth_client_secret_ref).decode("utf-8").strip()
+            adc_payload = json.dumps(
+                {
+                    "type": "authorized_user",
+                    "client_id": g.oauth_client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh,
+                }
+            ).encode("utf-8")
+            adc_path = store.write(profile=profile.name, kind="adc", data=adc_payload)
             bundle.env["GOOGLE_APPLICATION_CREDENTIALS"] = str(adc_path)
             bundle.ephemeral_files.append(adc_path)
 
