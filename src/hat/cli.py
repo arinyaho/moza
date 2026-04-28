@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,50 @@ def main() -> None:
     """hat — multi-identity credential router."""
 
 
+_MARKDOWN_LINK = re.compile(r"^\[([^\]]+)\]\([^)]+\)$")
+
+
+def _clean_email(s: str) -> str:
+    s = s.strip()
+    m = _MARKDOWN_LINK.match(s)
+    return m.group(1) if m else s
+
+
+def _validate_gcp_project_id(project: str) -> None:
+    if " " in project or not project.islower():
+        raise click.ClickException(
+            f"{project!r} looks like a project NAME, not a PROJECT_ID.\n"
+            "  Run `gcloud projects list` to find the PROJECT_ID column "
+            "(lowercase, hyphens, e.g. 'my-first-project-12345')."
+        )
+
+
+def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
+    try:
+        backend.health_check()
+    except Exception as exc:
+        msg = [f"backend health check failed: {exc}"]
+        if backend_type == "gcp_secret_manager":
+            account = bootstrap.get("gcp_account", "<bootstrap-email>")
+            msg.append("")
+            msg.append("Likely causes:")
+            msg.append("  - Bootstrap ADC missing or for a different account.")
+            msg.append("  - Bootstrap account lacks Secret Manager access on this project.")
+            msg.append("")
+            msg.append("Try:")
+            msg.append(f"  gcloud auth application-default login --account={account}")
+            msg.append(
+                "  gcloud projects add-iam-policy-binding <project> \\\n"
+                f"      --member=user:{account} --role=roles/secretmanager.admin"
+            )
+            msg.append("Then: hat doctor")
+        elif backend_type == "oci_vault":
+            msg.append("")
+            msg.append("Check ~/.oci/config and that the API key PEM exists.")
+            msg.append("Then: hat doctor")
+        raise click.ClickException("\n".join(msg))
+
+
 @main.command("init")
 def init_cmd() -> None:
     """Interactive bootstrap wizard."""
@@ -57,27 +102,28 @@ def init_cmd() -> None:
     choice = click.prompt("Choice", type=click.Choice(["1", "2", "3"]))
 
     if choice == "1":
-        project = click.prompt("GCP project ID")
-        bootstrap_account = click.prompt("Bootstrap GCP account email")
-        backend = BackendConfig(type="gcp_secret_manager", options={"project": project})
+        project = click.prompt("GCP project ID").strip()
+        _validate_gcp_project_id(project)
+        bootstrap_account = _clean_email(click.prompt("Bootstrap GCP account email"))
+        backend_cfg = BackendConfig(type="gcp_secret_manager", options={"project": project})
         bootstrap = {"gcp_account": bootstrap_account}
     elif choice == "2":
-        vault_ocid = click.prompt("Vault OCID")
-        compartment_ocid = click.prompt("Compartment OCID")
+        vault_ocid = click.prompt("Vault OCID").strip()
+        compartment_ocid = click.prompt("Compartment OCID").strip()
         region = click.prompt("Region", default="ap-chuncheon-1")
-        backend = BackendConfig(
+        backend_cfg = BackendConfig(
             type="oci_vault",
             options={"vault_ocid": vault_ocid, "compartment_ocid": compartment_ocid, "region": region},
         )
         bootstrap = {}
     else:
         prefix = click.prompt("Service prefix", default="hat-")
-        backend = BackendConfig(type="macos_keychain", options={"service_prefix": prefix})
+        backend_cfg = BackendConfig(type="macos_keychain", options={"service_prefix": prefix})
         bootstrap = {}
 
     cfg = Config(
         schema_version=1,
-        secrets_backend=backend,
+        secrets_backend=backend_cfg,
         bootstrap=bootstrap,
         secret_naming=SecretNaming(
             default="hat-{profile}-{service}-{kind}",
@@ -87,6 +133,10 @@ def init_cmd() -> None:
     )
     save_config(cfg)
     click.echo(f"Wrote {config_path()}.")
+
+    backend = load_backend(cfg.secrets_backend)
+    _verify_backend(backend, backend_cfg.type, bootstrap)
+    click.echo(f"Backend ({backend_cfg.type}): OK")
     click.echo("Next: `hat login <profile> --service google|github|slack`")
 
 

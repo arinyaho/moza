@@ -206,3 +206,52 @@ def test_doctor_gc_sweeps(runner, hat_cfg, mocker):
     gc = mocker.patch("hat.cli.EphemeralStore.gc")
     runner.invoke(main, ["doctor", "--gc"])
     gc.assert_called_once()
+
+
+def test_init_rejects_project_name_with_space(runner, hat_cfg):
+    result = runner.invoke(main, ["init"], input="1\nMy First Project\n")
+    assert result.exit_code != 0
+    assert "PROJECT_ID" in result.output
+    assert "gcloud projects list" in result.output
+    assert not hat_cfg.exists()
+
+
+def test_init_rejects_uppercase_project_id(runner, hat_cfg):
+    result = runner.invoke(main, ["init"], input="1\nMy-Project\n")
+    assert result.exit_code != 0
+    assert "PROJECT_ID" in result.output
+
+
+def test_init_strips_markdown_email(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    result = runner.invoke(
+        main,
+        ["init"],
+        input="1\nmy-proj-1\n[a@b.com](mailto:a@b.com)\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["bootstrap"]["gcp_account"] == "a@b.com"
+
+
+def test_init_aborts_on_health_check_failure_with_actionable_message(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.side_effect = RuntimeError("permission denied: caller lacks role")
+    result = runner.invoke(main, ["init"], input="1\nmy-proj-1\nme@x.com\n")
+    assert result.exit_code != 0
+    out = result.output
+    assert "permission denied" in out.lower()
+    assert "gcloud auth application-default login --account=me@x.com" in out
+    assert "hat doctor" in out
+    # Config should still be on disk so user can fix without re-prompting.
+    assert hat_cfg.exists()
+
+
+def test_init_keychain_runs_health_check(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    result = runner.invoke(main, ["init"], input="3\nhat-\n")
+    assert result.exit_code == 0
+    backend.health_check.assert_called_once()
+    assert "OK" in result.output
