@@ -225,6 +225,7 @@ def test_init_rejects_uppercase_project_id(runner, hat_cfg):
 def test_init_strips_markdown_email(runner, hat_cfg, mocker):
     backend = mocker.patch("hat.cli.load_backend").return_value
     backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")  # don't touch real gcloud ADC
     result = runner.invoke(
         main,
         ["init"],
@@ -255,3 +256,63 @@ def test_init_keychain_runs_health_check(runner, hat_cfg, mocker):
     assert result.exit_code == 0
     backend.health_check.assert_called_once()
     assert "OK" in result.output
+
+
+def test_init_sets_quota_project_for_gcp(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    sub = mocker.patch("hat.cli.subprocess.run")
+    result = runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
+    assert result.exit_code == 0, result.output
+    quota_calls = [
+        c for c in sub.call_args_list
+        if c[0][0][:4] == ["gcloud", "auth", "application-default", "set-quota-project"]
+    ]
+    assert len(quota_calls) == 1
+    assert quota_calls[0][0][0][4] == "sayu-studio"
+    assert "quota project to sayu-studio" in result.output
+
+
+def test_init_warns_when_quota_project_set_fails(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run", side_effect=FileNotFoundError("gcloud"))
+    result = runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
+    assert result.exit_code == 0
+    assert "could not set ADC quota project" in result.output
+    assert "gcloud auth application-default set-quota-project sayu-studio" in result.output
+
+
+def test_login_google_shows_oauth_hint_when_client_id_missing(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    backend.put.side_effect = ["ref://oauth", "ref://refresh"]
+    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("hat.cli.subprocess.run")  # set-quota-project no-op
+    runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "google", "--email", "me@x.com"],
+        input="my-cid\nmy-csec\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "OAuth Desktop client" in result.output
+    assert "console.cloud.google.com/apis/credentials" in result.output
+    assert "sayu-studio" in result.output
+
+
+def test_login_google_skips_hint_when_client_id_provided(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    backend.put.side_effect = ["ref://oauth", "ref://refresh"]
+    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("hat.cli.subprocess.run")
+    runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "google",
+         "--email", "me@x.com", "--client-id", "cid"],
+        input="csec\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "OAuth Desktop client" not in result.output

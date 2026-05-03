@@ -137,7 +137,43 @@ def init_cmd() -> None:
     backend = load_backend(cfg.secrets_backend)
     _verify_backend(backend, backend_cfg.type, bootstrap)
     click.echo(f"Backend ({backend_cfg.type}): OK")
+
+    if backend_cfg.type == "gcp_secret_manager":
+        _set_adc_quota_project(backend_cfg.options["project"])
+
     click.echo("Next: `hat login <profile> --service google|github|slack`")
+
+
+def _print_oauth_client_hint(cfg: Config) -> None:
+    """Show how to create an OAuth Desktop client when none is supplied."""
+    if cfg.secrets_backend.type == "gcp_secret_manager":
+        project = cfg.secrets_backend.options.get("project")
+        url = f"https://console.cloud.google.com/apis/credentials?project={project}"
+    else:
+        url = "https://console.cloud.google.com/apis/credentials"
+    click.echo("Need an OAuth Desktop client. If you don't have one yet:")
+    click.echo(f"  1) Open: {url}")
+    click.echo("  2) Create Credentials → OAuth client ID → Application type: Desktop app")
+    click.echo("  3) Copy the Client ID + Client secret, then paste below.")
+    click.echo("(One Desktop client can be reused across all hat profiles.)")
+    click.echo("")
+
+
+def _set_adc_quota_project(project: str) -> None:
+    """Pin the ADC's quota_project_id so end-user creds aren't quota-orphaned."""
+    try:
+        subprocess.run(
+            ["gcloud", "auth", "application-default", "set-quota-project", project],
+            check=True,
+            capture_output=True,
+        )
+        click.echo(f"Set ADC quota project to {project}.")
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        click.echo(
+            f"warning: could not set ADC quota project ({exc}). "
+            f"Run manually: gcloud auth application-default set-quota-project {project}",
+            err=True,
+        )
 
 
 @main.command("list")
@@ -249,7 +285,9 @@ def login_cmd(
 
     if service == "google":
         email = email or click.prompt("Google account email")
-        client_id = client_id or click.prompt("OAuth client ID")
+        if not client_id:
+            _print_oauth_client_hint(cfg)
+            client_id = click.prompt("OAuth client ID")
         client_secret = click.prompt("OAuth client secret", hide_input=True)
 
         refresh = google_installed_app_flow(
