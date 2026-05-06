@@ -1,6 +1,14 @@
 ---
 name: hat
 description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, or Slack — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, and `curl` calls without polluting other Claude sessions.
+version: 0.1.0
+author: arinyaho
+license: MIT
+compatibility: requires the `hat` CLI on PATH — install from https://github.com/arinyaho/hat
+metadata:
+  hermes:
+    tags: [identity, credentials, multi-account, gcp, github, slack]
+    related_skills: []
 ---
 
 # hat — Multi-identity credential router

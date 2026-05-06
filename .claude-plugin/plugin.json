@@ -1,0 +1,13 @@
+{
+  "name": "hat",
+  "version": "0.1.0",
+  "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
+  "author": {
+    "name": "arinyaho",
+    "url": "https://github.com/arinyaho"
+  },
+  "homepage": "https://github.com/arinyaho/hat",
+  "repository": "https://github.com/arinyaho/hat",
+  "license": "MIT",
+  "keywords": ["identity", "credentials", "multi-account", "secret-manager", "gcp", "github", "slack"]
+}
