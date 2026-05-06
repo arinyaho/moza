@@ -1,0 +1,52 @@
+# hat
+
+Multi-identity credential router for Google, GitHub, and Slack — designed for developers juggling multiple accounts (personal + work) across services.
+
+## What it does
+
+Activate a named identity in your current shell:
+
+```bash
+eval "$(hat use personal)"
+gh pr list                # uses your personal GitHub
+gcloud projects list      # uses your personal GCP
+TOKEN=$(hat token google) # mint a Gmail/Cal/Drive access token on demand
+```
+
+A second shell can run `eval "$(hat use work)"` independently. No global state. No token files in your home directory.
+
+## Architecture
+
+- **Per-session env vars** activate `gcloud`, `gh`, etc.
+- **Ephemeral files** (mode 0600, `${TMPDIR}/hat/`) hold per-session ADC + Slack tokens, cleaned on shell exit.
+- **Pluggable secrets backend**: GCP Secret Manager, OCI Vault, or macOS Keychain.
+
+## Install
+
+```bash
+git clone <this-repo> ~/projects/hat
+cd ~/projects/hat
+uv tool install .                      # or: pipx install .
+echo "source $PWD/shell/hat.zsh" >> ~/.zshrc
+```
+
+## Bootstrap
+
+```bash
+hat init                               # pick a backend
+hat login personal --service github
+hat login personal --service google --email me@x.com --client-id <id>
+hat login personal --service slack --workspace team-a
+```
+
+See `plugins/skills/hat/references/` for full docs.
+
+## Claude Code plugin
+
+This repo is a Claude Code plugin. Install via:
+
+```
+/plugin install <git-url>
+```
+
+Once installed, Claude will use the `hat` skill automatically when you mention identity-scoped work.

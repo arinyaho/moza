@@ -1,0 +1,626 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import click
+
+from hat.backends import load_backend
+from hat.ephemeral import EphemeralStore
+from hat.config import (
+    BackendConfig,
+    Config,
+    GitHubService,
+    GoogleService,
+    Profile,
+    SecretNaming,
+    SlackWorkspace,
+    config_path,
+    load_config,
+    save_config,
+)
+from hat.env import build_env
+from hat.oauth import exchange_refresh_token, google_installed_app_flow
+from hat.secret_naming import render_name
+from hat.shell import emit_unset, emit_use
+
+
+GOOGLE_DEFAULT_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/cloud-platform",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+]
+
+
+def _friendly_backend_message(exc: BaseException) -> str | None:
+    """Translate noisy backend exceptions to actionable hints."""
+    try:
+        from google.api_core import exceptions as gerr
+    except ImportError:
+        gerr = None  # type: ignore[assignment]
+
+    cfg = load_config()
+    project = "<project>"
+    account = "<bootstrap-email>"
+    if cfg:
+        project = cfg.secrets_backend.options.get("project", project)
+        account = (cfg.bootstrap or {}).get("gcp_account", account)
+
+    if gerr is not None and isinstance(exc, gerr.PermissionDenied):
+        return (
+            f"Permission denied accessing Secret Manager (project {project!r}).\n\n"
+            "Most likely cause: your Application Default Credentials (ADC) is signed\n"
+            "in as a different account than the hat bootstrap account.\n\n"
+            "Check the current ADC account:\n"
+            "  TOKEN=$(gcloud auth application-default print-access-token)\n"
+            '  curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" | jq .email\n\n'
+            f"If it isn't {account!r}, fix it:\n"
+            f"  gcloud auth application-default login --account={account}\n\n"
+            "Then verify with: hat doctor"
+        )
+    if gerr is not None and isinstance(exc, gerr.Unauthenticated):
+        return (
+            "No Application Default Credentials available.\n\n"
+            f"  gcloud auth application-default login --account={account}\n\n"
+            "Then verify with: hat doctor"
+        )
+    return None
+
+
+class HatGroup(click.Group):
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            msg = _friendly_backend_message(exc)
+            if msg:
+                raise click.ClickException(msg) from exc
+            raise
+
+
+@click.group(cls=HatGroup)
+@click.version_option(package_name="hat-cli")
+def main() -> None:
+    """hat — multi-identity credential router."""
+    # hat's own backend access always uses the bootstrap ADC.
+    # An active profile's GOOGLE_APPLICATION_CREDENTIALS is meant for downstream
+    # programs (gcloud, gh, etc.), not for hat itself — pop it so google-auth
+    # falls back to ~/.config/gcloud/application_default_credentials.json.
+    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+
+
+_MARKDOWN_LINK = re.compile(r"^\[([^\]]+)\]\([^)]+\)$")
+
+
+def _clean_email(s: str) -> str:
+    s = s.strip()
+    m = _MARKDOWN_LINK.match(s)
+    return m.group(1) if m else s
+
+
+def _read_ssh_key(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        raise click.ClickException(
+            f"SSH key not found at {path}.\n"
+            f"Generate one with: ssh-keygen -t ed25519 -f {path}\n"
+            f"Or pass an existing path with --ssh-key/--ssh-key-path."
+        )
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _readline_path_completion():
+    """Enable tab completion for filesystem paths during a prompt."""
+    try:
+        import glob
+        import readline
+    except ImportError:
+        yield
+        return
+
+    def completer(text: str, state: int):
+        expanded = os.path.expanduser(text)
+        matches = glob.glob(expanded + "*")
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        if text.startswith("~"):
+            home = os.path.expanduser("~")
+            matches = [("~" + m[len(home):]) if m.startswith(home) else m for m in matches]
+        return matches[state] if state < len(matches) else None
+
+    prev_completer = readline.get_completer()
+    prev_delims = readline.get_completer_delims()
+    readline.set_completer(completer)
+    readline.set_completer_delims(" \t\n")
+    bind = "bind ^I rl_complete" if "libedit" in (readline.__doc__ or "") else "tab: complete"
+    readline.parse_and_bind(bind)
+    try:
+        yield
+    finally:
+        readline.set_completer(prev_completer)
+        readline.set_completer_delims(prev_delims)
+
+
+def _validate_gcp_project_id(project: str) -> None:
+    if " " in project or not project.islower():
+        raise click.ClickException(
+            f"{project!r} looks like a project NAME, not a PROJECT_ID.\n"
+            "  Run `gcloud projects list` to find the PROJECT_ID column "
+            "(lowercase, hyphens, e.g. 'my-first-project-12345')."
+        )
+
+
+def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
+    try:
+        backend.health_check()
+    except Exception as exc:
+        msg = [f"backend health check failed: {exc}"]
+        if backend_type == "gcp_secret_manager":
+            account = bootstrap.get("gcp_account", "<bootstrap-email>")
+            msg.append("")
+            msg.append("Likely causes:")
+            msg.append("  - Bootstrap ADC missing or for a different account.")
+            msg.append("  - Bootstrap account lacks Secret Manager access on this project.")
+            msg.append("")
+            msg.append("Try:")
+            msg.append(f"  gcloud auth application-default login --account={account}")
+            msg.append(
+                "  gcloud projects add-iam-policy-binding <project> \\\n"
+                f"      --member=user:{account} --role=roles/secretmanager.admin"
+            )
+            msg.append("Then: hat doctor")
+        elif backend_type == "oci_vault":
+            msg.append("")
+            msg.append("Check ~/.oci/config and that the API key PEM exists.")
+            msg.append("Then: hat doctor")
+        raise click.ClickException("\n".join(msg))
+
+
+@main.command("init")
+def init_cmd() -> None:
+    """Interactive bootstrap wizard."""
+    if config_path().exists():
+        click.confirm(f"{config_path()} exists. Overwrite?", abort=True)
+
+    click.echo("Pick a secrets backend:")
+    click.echo("  1) gcp_secret_manager")
+    click.echo("  2) oci_vault")
+    click.echo("  3) macos_keychain")
+    choice = click.prompt("Choice", type=click.Choice(["1", "2", "3"]))
+
+    if choice == "1":
+        project = click.prompt("GCP project ID").strip()
+        _validate_gcp_project_id(project)
+        bootstrap_account = _clean_email(click.prompt("Bootstrap GCP account email"))
+        backend_cfg = BackendConfig(type="gcp_secret_manager", options={"project": project})
+        bootstrap = {"gcp_account": bootstrap_account}
+    elif choice == "2":
+        vault_ocid = click.prompt("Vault OCID").strip()
+        compartment_ocid = click.prompt("Compartment OCID").strip()
+        region = click.prompt("Region", default="ap-chuncheon-1")
+        backend_cfg = BackendConfig(
+            type="oci_vault",
+            options={"vault_ocid": vault_ocid, "compartment_ocid": compartment_ocid, "region": region},
+        )
+        bootstrap = {}
+    else:
+        prefix = click.prompt("Service prefix", default="hat-")
+        backend_cfg = BackendConfig(type="macos_keychain", options={"service_prefix": prefix})
+        bootstrap = {}
+
+    cfg = Config(
+        schema_version=1,
+        secrets_backend=backend_cfg,
+        bootstrap=bootstrap,
+        secret_naming=SecretNaming(
+            default="hat-{profile}-{service}-{kind}",
+            slack_token="hat-{profile}-slack-{workspace}-token",
+        ),
+        profiles={},
+    )
+    save_config(cfg)
+    click.echo(f"Wrote {config_path()}.")
+
+    backend = load_backend(cfg.secrets_backend)
+    _verify_backend(backend, backend_cfg.type, bootstrap)
+    click.echo(f"Backend ({backend_cfg.type}): OK")
+
+    if backend_cfg.type == "gcp_secret_manager":
+        _set_adc_quota_project(backend_cfg.options["project"])
+
+    click.echo("Next: `hat login <profile> --service google|github|slack`")
+
+
+
+def _print_oauth_client_hint(cfg: Config) -> None:
+    """Show how to create an OAuth Desktop client when none is supplied."""
+    if cfg.secrets_backend.type == "gcp_secret_manager":
+        project = cfg.secrets_backend.options.get("project")
+        url = f"https://console.cloud.google.com/apis/credentials?project={project}"
+    else:
+        url = "https://console.cloud.google.com/apis/credentials"
+    click.echo("Need an OAuth Desktop client. If you don't have one yet:")
+    click.echo(f"  1) Open: {url}")
+    click.echo("  2) Create Credentials → OAuth client ID → Application type: Desktop app")
+    click.echo("  3) Copy the Client ID + Client secret, then paste below.")
+    click.echo("(One Desktop client can be reused across all hat profiles.)")
+    click.echo("")
+
+
+def _check_adc_quota_project(expected: str | None) -> None:
+    """Read ADC file and warn if quota_project_id is missing or mismatched."""
+    adc_path = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if not adc_path.exists():
+        click.echo("ADC: not found", err=True)
+        return
+    try:
+        adc = json.loads(adc_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        click.echo(f"ADC: unreadable ({e})", err=True)
+        return
+    actual = adc.get("quota_project_id")
+    if not actual:
+        click.echo(
+            f"ADC quota project: not set (expected {expected!r})\n"
+            f"  Fix: gcloud auth application-default set-quota-project {expected}",
+            err=True,
+        )
+    elif expected and actual != expected:
+        click.echo(
+            f"ADC quota project: {actual!r} (expected {expected!r})\n"
+            f"  Fix: gcloud auth application-default set-quota-project {expected}",
+            err=True,
+        )
+    else:
+        click.echo(f"ADC quota project: {actual}")
+
+
+def _set_adc_quota_project(project: str) -> None:
+    """Pin the ADC's quota_project_id so end-user creds aren't quota-orphaned."""
+    try:
+        subprocess.run(
+            ["gcloud", "auth", "application-default", "set-quota-project", project],
+            check=True,
+            capture_output=True,
+        )
+        click.echo(f"Set ADC quota project to {project}.")
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        click.echo(
+            f"warning: could not set ADC quota project ({exc}). "
+            f"Run manually: gcloud auth application-default set-quota-project {project}",
+            err=True,
+        )
+
+
+@main.command("list")
+def list_cmd() -> None:
+    cfg = _require_config()
+    if not cfg.profiles:
+        click.echo("(no profiles configured — run `hat login <name> --service ...`)")
+        return
+    for name, prof in cfg.profiles.items():
+        services = []
+        if prof.google:
+            services.append(f"google:{prof.google.email}")
+        if prof.github:
+            services.append(f"github:{prof.github.username}")
+        if prof.slack:
+            services.append(f"slack:[{', '.join(w.workspace for w in prof.slack)}]")
+        click.echo(f"{name}\t{' '.join(services) or '(empty)'}")
+
+
+@main.command("status")
+def status_cmd() -> None:
+    active = os.environ.get("HAT_PROFILE")
+    if not active:
+        click.echo("no profile active in this shell")
+        return
+    click.echo(f"active: {active}")
+    for var in (
+        "CLOUDSDK_ACTIVE_CONFIG_NAME",
+        "CLOUDSDK_CORE_PROJECT",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GH_TOKEN",
+        "HAT_SLACK_TOKENS",
+    ):
+        if v := os.environ.get(var):
+            shown = v if var != "GH_TOKEN" else "<set>"
+            click.echo(f"  {var}={shown}")
+
+
+@main.command("whoami")
+@click.argument("profile", required=False)
+def whoami_cmd(profile: str | None) -> None:
+    cfg = _require_config()
+    name = profile or os.environ.get("HAT_PROFILE")
+    if not name:
+        raise click.ClickException("no profile (set $HAT_PROFILE or pass an argument)")
+    prof = cfg.profiles.get(name)
+    if not prof:
+        raise click.ClickException(f"profile {name!r} not found")
+    click.echo(json.dumps({
+        "name": prof.name,
+        "google": prof.google.email if prof.google else None,
+        "github": prof.github.username if prof.github else None,
+        "slack": [w.workspace for w in prof.slack],
+    }, indent=2))
+
+
+def _require_config() -> Config:
+    cfg = load_config()
+    if cfg is None:
+        raise click.ClickException("no config — run `hat init` first")
+    return cfg
+
+
+@main.command("login")
+@click.argument("profile_name")
+@click.option("--service", type=click.Choice(["google", "github", "slack"]), required=True)
+@click.option("--workspace", help="Slack workspace label (required for --service slack)")
+@click.option("--email", help="(google) account email")
+@click.option("--username", help="(github) username")
+@click.option("--host", default="github.com", help="(github) host (for GHES)")
+@click.option("--ssh-key-path", "ssh_key_path", help="(github) register SSH key by path (per-device)")
+@click.option("--ssh-key", "ssh_key", help="(github) read SSH key file and store contents in the secrets backend")
+@click.option("--client-id", help="(google) OAuth client ID")
+def login_cmd(
+    profile_name: str,
+    service: str,
+    workspace: str | None,
+    email: str | None,
+    username: str | None,
+    host: str,
+    ssh_key_path: str | None,
+    ssh_key: str | None,
+    client_id: str | None,
+) -> None:
+    cfg = _require_config()
+    if profile_name not in cfg.profiles:
+        click.confirm(f"Profile {profile_name!r} not found. Create it?", default=False, abort=True)
+    backend = load_backend(cfg.secrets_backend)
+
+    if service == "github":
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        gh = prof.github or GitHubService(
+            username=username or "",
+            host=host,
+        )
+        if username:
+            gh.username = username
+        gh.host = host
+
+        did_something = False
+
+        if ssh_key_path:
+            gh.ssh_key_path = str(Path(ssh_key_path).expanduser())
+            click.echo(f"registered ssh key path for {profile_name}: {gh.ssh_key_path}")
+            did_something = True
+
+        if ssh_key:
+            content = _read_ssh_key(Path(ssh_key).expanduser())
+            ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="ssh_key")
+            gh.ssh_key_ref = backend.put(ref_name, content)
+            click.echo(f"stored ssh key for {profile_name} at {gh.ssh_key_ref}")
+            did_something = True
+
+        if not (ssh_key_path or ssh_key):
+            if not gh.username:
+                gh.username = click.prompt("GitHub username")
+            token = click.prompt("Paste a GitHub token", hide_input=True)
+            ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="token")
+            gh.token_ref = backend.put(ref_name, token.encode("utf-8"))
+            click.echo(f"stored github token for {profile_name} at {gh.token_ref}")
+            did_something = True
+
+            if click.confirm("Also register an SSH key for git operations?", default=False):
+                default_path = str(Path.home() / ".ssh" / "id_ed25519")
+                with _readline_path_completion():
+                    path = click.prompt("SSH private key path", default=default_path)
+                expanded = Path(path).expanduser()
+                if not expanded.exists():
+                    raise click.ClickException(
+                        f"SSH key not found at {expanded}.\n"
+                        f"Generate one with: ssh-keygen -t ed25519 -f {expanded}"
+                    )
+                storage = click.prompt(
+                    "Store key in the secrets backend (sm) or remember the path only (path)?",
+                    type=click.Choice(["sm", "path"]),
+                    default="sm",
+                )
+                if storage == "path":
+                    gh.ssh_key_path = str(expanded)
+                    click.echo(f"registered ssh key path: {gh.ssh_key_path}")
+                else:
+                    content = expanded.read_bytes()
+                    ssh_ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="ssh_key")
+                    gh.ssh_key_ref = backend.put(ssh_ref_name, content)
+                    click.echo(f"stored ssh key contents at {gh.ssh_key_ref}")
+
+        if did_something:
+            prof.github = gh
+            cfg.profiles[profile_name] = prof
+            save_config(cfg)
+        return
+
+    if service == "slack":
+        if not workspace:
+            raise click.ClickException("--workspace is required for --service slack")
+        token = click.prompt("Paste a Slack user token (xoxp-...)", hide_input=True)
+        ref_name = render_name(cfg.secret_naming.slack_token, profile=profile_name, workspace=workspace)
+        ref = backend.put(ref_name, token.encode("utf-8"))
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        prof.slack = [w for w in prof.slack if w.workspace != workspace]
+        prof.slack.append(SlackWorkspace(workspace=workspace, team_id=None, user_token_ref=ref))
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        click.echo(f"stored slack token for {profile_name}/{workspace} at {ref}")
+        return
+
+    if service == "google":
+        email = email or click.prompt("Google account email")
+        if not client_id:
+            _print_oauth_client_hint(cfg)
+            client_id = click.prompt("OAuth client ID")
+        client_secret = click.prompt("OAuth client secret", hide_input=True)
+
+        refresh = google_installed_app_flow(
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=GOOGLE_DEFAULT_SCOPES,
+        )
+        oauth_secret_ref = backend.put(
+            render_name(cfg.secret_naming.default, profile=profile_name, service="google", kind="oauth_client_secret"),
+            client_secret.encode("utf-8"),
+        )
+        refresh_ref = backend.put(
+            render_name(cfg.secret_naming.default, profile=profile_name, service="google", kind="refresh"),
+            refresh.encode("utf-8"),
+        )
+
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        prof.google = GoogleService(
+            email=email,
+            oauth_client_id=client_id,
+            oauth_client_secret_ref=oauth_secret_ref,
+            refresh_token_ref=refresh_ref,
+            adc_ref=None,
+            gcloud_config_name=profile_name,
+            default_project=None,
+            gcloud_login_required=False,
+        )
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        click.echo(f"stored google identity for {profile_name}")
+        return
+
+
+@main.command("use")
+@click.argument("profile_name")
+def use_cmd(profile_name: str) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    backend = load_backend(cfg.secrets_backend)
+    bundle = build_env(prof, backend)
+    sys.stdout.write(emit_use(bundle))
+
+
+@main.command("unset")
+def unset_cmd() -> None:
+    sys.stdout.write(emit_unset())
+
+
+@main.command("exec", context_settings={"ignore_unknown_options": True})
+@click.argument("profile_name")
+@click.argument("argv", nargs=-1, required=True)
+def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    backend = load_backend(cfg.secrets_backend)
+    bundle = build_env(prof, backend)
+    env = {**os.environ, **bundle.env}
+    rc = subprocess.call(list(argv), env=env)
+    sys.exit(rc)
+
+
+@main.command("token")
+@click.argument("service", type=click.Choice(["google"]))
+def token_cmd(service: str) -> None:
+    cfg = _require_config()
+    name = os.environ.get("HAT_PROFILE")
+    if not name:
+        raise click.ClickException("HAT_PROFILE not set; run `eval \"$(hat use <profile>)\"` first")
+    prof = cfg.profiles.get(name)
+    if not prof or not prof.google:
+        raise click.ClickException(f"profile {name!r} has no google identity")
+    backend = load_backend(cfg.secrets_backend)
+    g = prof.google
+    client_secret = backend.get(g.oauth_client_secret_ref).decode("utf-8")
+    refresh = backend.get(g.refresh_token_ref).decode("utf-8")
+    access = exchange_refresh_token(
+        client_id=g.oauth_client_id,
+        client_secret=client_secret,
+        refresh_token=refresh,
+    )
+    click.echo(access)
+
+
+@main.command("logout")
+@click.argument("profile_name")
+@click.option("--service", type=click.Choice(["google", "github", "slack"]), required=True)
+@click.option("--workspace", help="Slack workspace label (required for --service slack)")
+def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    backend = load_backend(cfg.secrets_backend)
+    if service == "github" and prof.github:
+        if prof.github.token_ref:
+            backend.delete(prof.github.token_ref)
+        if prof.github.ssh_key_ref:
+            backend.delete(prof.github.ssh_key_ref)
+        prof.github = None
+    elif service == "google" and prof.google:
+        if prof.google.refresh_token_ref:
+            backend.delete(prof.google.refresh_token_ref)
+        if prof.google.oauth_client_secret_ref:
+            backend.delete(prof.google.oauth_client_secret_ref)
+        if prof.google.adc_ref:
+            backend.delete(prof.google.adc_ref)
+        prof.google = None
+    elif service == "slack":
+        if not workspace:
+            raise click.ClickException("--workspace required for --service slack")
+        kept = []
+        for w in prof.slack:
+            if w.workspace == workspace:
+                backend.delete(w.user_token_ref)
+            else:
+                kept.append(w)
+        prof.slack = kept
+    save_config(cfg)
+    click.echo(f"removed {service} from {profile_name}")
+
+
+@main.command("doctor")
+@click.option("--gc", is_flag=True, help="Sweep stale ephemeral files for dead PIDs")
+def doctor_cmd(gc: bool) -> None:
+    cfg = _require_config()
+    click.echo(f"config:    {config_path()}")
+    click.echo(f"backend:   {cfg.secrets_backend.type}")
+    for k, v in cfg.secrets_backend.options.items():
+        click.echo(f"             {k}={v}")
+    for k, v in (cfg.bootstrap or {}).items():
+        click.echo(f"bootstrap: {k}={v}")
+    names = ", ".join(cfg.profiles) or "(none)"
+    click.echo(f"profiles:  {len(cfg.profiles)} [{names}]")
+
+    backend = load_backend(cfg.secrets_backend)
+    try:
+        backend.health_check()
+    except Exception as e:
+        raise click.ClickException(f"backend health check failed: {e}")
+    click.echo("backend health: OK")
+
+    if cfg.secrets_backend.type == "gcp_secret_manager":
+        _check_adc_quota_project(cfg.secrets_backend.options.get("project"))
+
+    if gc:
+        EphemeralStore.gc()
+        click.echo("ephemeral GC: done")
