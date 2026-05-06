@@ -49,8 +49,20 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
             bundle.ephemeral_files.append(adc_path)
 
     if profile.github:
-        token = backend.get(profile.github.token_ref).decode("utf-8").strip()
-        bundle.env["GH_TOKEN"] = token
+        gh = profile.github
+        if gh.token_ref:
+            token = backend.get(gh.token_ref).decode("utf-8").strip()
+            bundle.env["GH_TOKEN"] = token
+        ssh_path: str | None = None
+        if gh.ssh_key_ref:
+            key_data = backend.get(gh.ssh_key_ref)
+            ephemeral = store.write(profile=profile.name, kind="ssh_key", data=key_data)
+            bundle.ephemeral_files.append(ephemeral)
+            ssh_path = str(ephemeral)
+        elif gh.ssh_key_path:
+            ssh_path = gh.ssh_key_path
+        if ssh_path:
+            bundle.env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_path} -o IdentitiesOnly=yes"
 
     if profile.slack:
         mapping = {

@@ -91,6 +91,39 @@ def test_github_sets_gh_token(monkeypatch, tmp_path, fake_backend):
     assert bundle.env["GH_TOKEN"] == "ghp_xxx"
 
 
+def test_github_ssh_key_path_sets_git_ssh_command(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    prof = Profile(
+        name="work",
+        github=GitHubService(
+            username="u", host="github.com", token_ref=None,
+            ssh_key_path="/home/u/.ssh/id_work",
+        ),
+    )
+    bundle = build_env(prof, fake_backend, pid=701)
+    assert "GH_TOKEN" not in bundle.env
+    assert bundle.env["GIT_SSH_COMMAND"] == "ssh -i /home/u/.ssh/id_work -o IdentitiesOnly=yes"
+
+
+def test_github_ssh_key_ref_materializes_ephemeral_file(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    fake_backend.get.side_effect = lambda ref: {"ssh-ref": b"PRIVATE-KEY-BYTES"}[ref]
+    prof = Profile(
+        name="work",
+        github=GitHubService(
+            username="u", host="github.com", token_ref=None,
+            ssh_key_ref="ssh-ref",
+        ),
+    )
+    bundle = build_env(prof, fake_backend, pid=702)
+    cmd = bundle.env["GIT_SSH_COMMAND"]
+    assert cmd.startswith("ssh -i ")
+    assert cmd.endswith(" -o IdentitiesOnly=yes")
+    key_path = Path(cmd.split(" ")[2])
+    assert key_path.read_bytes() == b"PRIVATE-KEY-BYTES"
+    assert (key_path.stat().st_mode & 0o777) == 0o600
+
+
 def test_slack_writes_workspace_map(monkeypatch, tmp_path, fake_backend):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     prof = Profile(

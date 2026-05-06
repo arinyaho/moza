@@ -67,7 +67,7 @@ def test_login_github_stores_token_and_updates_config(runner, hat_cfg, mocker):
     result = runner.invoke(
         main,
         ["login", "personal", "--service", "github"],
-        input="myuser\nghp_token123\n",
+        input="y\nmyuser\nghp_token123\nn\n",
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(hat_cfg.read_text())
@@ -82,6 +82,7 @@ def test_login_slack_requires_workspace(runner, hat_cfg):
     result = runner.invoke(
         main,
         ["login", "personal", "--service", "slack"],
+        input="y\n",
     )
     assert result.exit_code != 0
     assert "--workspace" in result.output
@@ -93,7 +94,7 @@ def test_login_slack_appends_workspace(runner, hat_cfg, mocker):
         "ref://slack-b",
     ]
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    runner.invoke(main, ["login", "personal", "--service", "slack", "--workspace", "team-a"], input="xoxp-aaa\n")
+    runner.invoke(main, ["login", "personal", "--service", "slack", "--workspace", "team-a"], input="y\nxoxp-aaa\n")
     runner.invoke(main, ["login", "personal", "--service", "slack", "--workspace", "team-b"], input="xoxp-bbb\n")
     payload = json.loads(hat_cfg.read_text())
     workspaces = payload["profiles"]["personal"]["slack"]
@@ -116,7 +117,7 @@ def test_login_google_runs_oauth_and_stores(runner, hat_cfg, mocker):
             "--email", "me@example.com",
             "--client-id", "cid",
         ],
-        input="csec\n",
+        input="y\ncsec\n",
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(hat_cfg.read_text())
@@ -132,7 +133,7 @@ def test_use_emits_exports(runner, hat_cfg, mocker):
     runner.invoke(main, ["init"], input="3\nhat-\n")
     backend = mocker.patch("hat.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
-    runner.invoke(main, ["login", "personal", "--service", "github"], input="me\nghp_xxx\n")
+    runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\nghp_xxx\nn\n")
 
     backend.get.return_value = b"ghp_xxx"
     result = runner.invoke(main, ["use", "personal"])
@@ -162,7 +163,7 @@ def test_token_google_prints_access_token(runner, hat_cfg, mocker):
         main,
         ["login", "personal", "--service", "google",
          "--email", "me@x.com", "--client-id", "cid"],
-        input="csec\n",
+        input="y\ncsec\n",
     )
 
     result = runner.invoke(main, ["token", "google"], env={"HAT_PROFILE": "personal", "HAT_CONFIG": str(hat_cfg)})
@@ -170,11 +171,86 @@ def test_token_google_prints_access_token(runner, hat_cfg, mocker):
     assert "ya29-access" in result.output
 
 
+def test_login_github_ssh_key_path_skips_pat_prompt(runner, hat_cfg, mocker, tmp_path):
+    mocker.patch("hat.cli.load_backend")
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    keyfile = tmp_path / "id_test"
+    keyfile.write_text("PRIVATE")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github", "--ssh-key-path", str(keyfile)],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    gh = payload["profiles"]["personal"]["github"]
+    assert gh["ssh_key_path"] == str(keyfile)
+    assert gh["token_ref"] is None
+    assert gh["ssh_key_ref"] is None
+
+
+def test_login_github_ssh_key_stored_in_backend(runner, hat_cfg, mocker, tmp_path):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://ssh"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    keyfile = tmp_path / "id_test"
+    keyfile.write_bytes(b"PRIVATE-KEY")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github", "--ssh-key", str(keyfile)],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    backend.put.assert_called_once()
+    args = backend.put.call_args[0]
+    assert args[1] == b"PRIVATE-KEY"
+    payload = json.loads(hat_cfg.read_text())
+    gh = payload["profiles"]["personal"]["github"]
+    assert gh["ssh_key_ref"] == "ref://ssh"
+    assert gh["token_ref"] is None
+
+
+def test_login_github_interactive_ssh_prompt_path(runner, hat_cfg, mocker, tmp_path):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    keyfile = tmp_path / "id_test"
+    keyfile.write_text("PRIVATE")
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input=f"y\nme\ntok\ny\n{keyfile}\npath\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    gh = payload["profiles"]["personal"]["github"]
+    assert gh["token_ref"] == "ref://gh"
+    assert gh["ssh_key_path"] == str(keyfile)
+    assert gh["ssh_key_ref"] is None
+
+
+def test_login_github_pat_and_ssh_compose_across_calls(runner, hat_cfg, mocker, tmp_path):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    runner.invoke(main, ["login", "cryptolab", "--service", "github"], input="y\nme\ntok\nn\n")
+    keyfile = tmp_path / "id_test"
+    keyfile.write_text("PRIVATE")
+    runner.invoke(
+        main,
+        ["login", "cryptolab", "--service", "github", "--ssh-key-path", str(keyfile)],
+    )
+    payload = json.loads(hat_cfg.read_text())
+    gh = payload["profiles"]["cryptolab"]["github"]
+    assert gh["token_ref"] == "ref://gh"
+    assert gh["ssh_key_path"] == str(keyfile)
+
+
 def test_logout_removes_service(runner, hat_cfg, mocker):
     backend = mocker.patch("hat.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    runner.invoke(main, ["login", "personal", "--service", "github"], input="me\ntok\n")
+    runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\ntok\nn\n")
     result = runner.invoke(main, ["logout", "personal", "--service", "github"])
     assert result.exit_code == 0
     backend.delete.assert_called_with("ref://gh")
@@ -293,7 +369,7 @@ def test_login_google_shows_oauth_hint_when_client_id_missing(runner, hat_cfg, m
     result = runner.invoke(
         main,
         ["login", "personal", "--service", "google", "--email", "me@x.com"],
-        input="my-cid\nmy-csec\n",
+        input="y\nmy-cid\nmy-csec\n",
     )
     assert result.exit_code == 0, result.output
     assert "OAuth Desktop client" in result.output
@@ -312,7 +388,7 @@ def test_login_google_skips_hint_when_client_id_provided(runner, hat_cfg, mocker
         main,
         ["login", "personal", "--service", "google",
          "--email", "me@x.com", "--client-id", "cid"],
-        input="csec\n",
+        input="y\ncsec\n",
     )
     assert result.exit_code == 0, result.output
     assert "OAuth Desktop client" not in result.output

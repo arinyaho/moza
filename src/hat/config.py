@@ -36,7 +36,9 @@ class GoogleService:
 class GitHubService:
     username: str
     host: str
-    token_ref: str
+    token_ref: str | None = None
+    ssh_key_path: str | None = None
+    ssh_key_ref: str | None = None
 
 
 @dataclass

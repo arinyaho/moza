@@ -39,10 +39,63 @@ GOOGLE_DEFAULT_SCOPES = [
 ]
 
 
-@click.group()
+def _friendly_backend_message(exc: BaseException) -> str | None:
+    """Translate noisy backend exceptions to actionable hints."""
+    try:
+        from google.api_core import exceptions as gerr
+    except ImportError:
+        gerr = None  # type: ignore[assignment]
+
+    cfg = load_config()
+    project = "<project>"
+    account = "<bootstrap-email>"
+    if cfg:
+        project = cfg.secrets_backend.options.get("project", project)
+        account = (cfg.bootstrap or {}).get("gcp_account", account)
+
+    if gerr is not None and isinstance(exc, gerr.PermissionDenied):
+        return (
+            f"Permission denied accessing Secret Manager (project {project!r}).\n\n"
+            "Most likely cause: your Application Default Credentials (ADC) is signed\n"
+            "in as a different account than the hat bootstrap account.\n\n"
+            "Check the current ADC account:\n"
+            "  TOKEN=$(gcloud auth application-default print-access-token)\n"
+            '  curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" | jq .email\n\n'
+            f"If it isn't {account!r}, fix it:\n"
+            f"  gcloud auth application-default login --account={account}\n\n"
+            "Then verify with: hat doctor"
+        )
+    if gerr is not None and isinstance(exc, gerr.Unauthenticated):
+        return (
+            "No Application Default Credentials available.\n\n"
+            f"  gcloud auth application-default login --account={account}\n\n"
+            "Then verify with: hat doctor"
+        )
+    return None
+
+
+class HatGroup(click.Group):
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            msg = _friendly_backend_message(exc)
+            if msg:
+                raise click.ClickException(msg) from exc
+            raise
+
+
+@click.group(cls=HatGroup)
 @click.version_option(package_name="hat-cli")
 def main() -> None:
     """hat — multi-identity credential router."""
+    # hat's own backend access always uses the bootstrap ADC.
+    # An active profile's GOOGLE_APPLICATION_CREDENTIALS is meant for downstream
+    # programs (gcloud, gh, etc.), not for hat itself — pop it so google-auth
+    # falls back to ~/.config/gcloud/application_default_credentials.json.
+    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
 
 _MARKDOWN_LINK = re.compile(r"^\[([^\]]+)\]\([^)]+\)$")
@@ -52,6 +105,52 @@ def _clean_email(s: str) -> str:
     s = s.strip()
     m = _MARKDOWN_LINK.match(s)
     return m.group(1) if m else s
+
+
+def _read_ssh_key(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        raise click.ClickException(
+            f"SSH key not found at {path}.\n"
+            f"Generate one with: ssh-keygen -t ed25519 -f {path}\n"
+            f"Or pass an existing path with --ssh-key/--ssh-key-path."
+        )
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _readline_path_completion():
+    """Enable tab completion for filesystem paths during a prompt."""
+    try:
+        import glob
+        import readline
+    except ImportError:
+        yield
+        return
+
+    def completer(text: str, state: int):
+        expanded = os.path.expanduser(text)
+        matches = glob.glob(expanded + "*")
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        if text.startswith("~"):
+            home = os.path.expanduser("~")
+            matches = [("~" + m[len(home):]) if m.startswith(home) else m for m in matches]
+        return matches[state] if state < len(matches) else None
+
+    prev_completer = readline.get_completer()
+    prev_delims = readline.get_completer_delims()
+    readline.set_completer(completer)
+    readline.set_completer_delims(" \t\n")
+    bind = "bind ^I rl_complete" if "libedit" in (readline.__doc__ or "") else "tab: complete"
+    readline.parse_and_bind(bind)
+    try:
+        yield
+    finally:
+        readline.set_completer(prev_completer)
+        readline.set_completer_delims(prev_delims)
 
 
 def _validate_gcp_project_id(project: str) -> None:
@@ -144,6 +243,7 @@ def init_cmd() -> None:
     click.echo("Next: `hat login <profile> --service google|github|slack`")
 
 
+
 def _print_oauth_client_hint(cfg: Config) -> None:
     """Show how to create an OAuth Desktop client when none is supplied."""
     if cfg.secrets_backend.type == "gcp_secret_manager":
@@ -157,6 +257,34 @@ def _print_oauth_client_hint(cfg: Config) -> None:
     click.echo("  3) Copy the Client ID + Client secret, then paste below.")
     click.echo("(One Desktop client can be reused across all hat profiles.)")
     click.echo("")
+
+
+def _check_adc_quota_project(expected: str | None) -> None:
+    """Read ADC file and warn if quota_project_id is missing or mismatched."""
+    adc_path = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if not adc_path.exists():
+        click.echo("ADC: not found", err=True)
+        return
+    try:
+        adc = json.loads(adc_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        click.echo(f"ADC: unreadable ({e})", err=True)
+        return
+    actual = adc.get("quota_project_id")
+    if not actual:
+        click.echo(
+            f"ADC quota project: not set (expected {expected!r})\n"
+            f"  Fix: gcloud auth application-default set-quota-project {expected}",
+            err=True,
+        )
+    elif expected and actual != expected:
+        click.echo(
+            f"ADC quota project: {actual!r} (expected {expected!r})\n"
+            f"  Fix: gcloud auth application-default set-quota-project {expected}",
+            err=True,
+        )
+    else:
+        click.echo(f"ADC quota project: {actual}")
 
 
 def _set_adc_quota_project(project: str) -> None:
@@ -244,6 +372,8 @@ def _require_config() -> Config:
 @click.option("--email", help="(google) account email")
 @click.option("--username", help="(github) username")
 @click.option("--host", default="github.com", help="(github) host (for GHES)")
+@click.option("--ssh-key-path", "ssh_key_path", help="(github) register SSH key by path (per-device)")
+@click.option("--ssh-key", "ssh_key", help="(github) read SSH key file and store contents in the secrets backend")
 @click.option("--client-id", help="(google) OAuth client ID")
 def login_cmd(
     profile_name: str,
@@ -252,21 +382,76 @@ def login_cmd(
     email: str | None,
     username: str | None,
     host: str,
+    ssh_key_path: str | None,
+    ssh_key: str | None,
     client_id: str | None,
 ) -> None:
     cfg = _require_config()
+    if profile_name not in cfg.profiles:
+        click.confirm(f"Profile {profile_name!r} not found. Create it?", default=False, abort=True)
     backend = load_backend(cfg.secrets_backend)
 
     if service == "github":
-        username = username or click.prompt("GitHub username")
-        token = click.prompt("Paste a GitHub token", hide_input=True)
-        ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="token")
-        ref = backend.put(ref_name, token.encode("utf-8"))
         prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
-        prof.github = GitHubService(username=username, host=host, token_ref=ref)
-        cfg.profiles[profile_name] = prof
-        save_config(cfg)
-        click.echo(f"stored github token for {profile_name} at {ref}")
+        gh = prof.github or GitHubService(
+            username=username or "",
+            host=host,
+        )
+        if username:
+            gh.username = username
+        gh.host = host
+
+        did_something = False
+
+        if ssh_key_path:
+            gh.ssh_key_path = str(Path(ssh_key_path).expanduser())
+            click.echo(f"registered ssh key path for {profile_name}: {gh.ssh_key_path}")
+            did_something = True
+
+        if ssh_key:
+            content = _read_ssh_key(Path(ssh_key).expanduser())
+            ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="ssh_key")
+            gh.ssh_key_ref = backend.put(ref_name, content)
+            click.echo(f"stored ssh key for {profile_name} at {gh.ssh_key_ref}")
+            did_something = True
+
+        if not (ssh_key_path or ssh_key):
+            if not gh.username:
+                gh.username = click.prompt("GitHub username")
+            token = click.prompt("Paste a GitHub token", hide_input=True)
+            ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="token")
+            gh.token_ref = backend.put(ref_name, token.encode("utf-8"))
+            click.echo(f"stored github token for {profile_name} at {gh.token_ref}")
+            did_something = True
+
+            if click.confirm("Also register an SSH key for git operations?", default=False):
+                default_path = str(Path.home() / ".ssh" / "id_ed25519")
+                with _readline_path_completion():
+                    path = click.prompt("SSH private key path", default=default_path)
+                expanded = Path(path).expanduser()
+                if not expanded.exists():
+                    raise click.ClickException(
+                        f"SSH key not found at {expanded}.\n"
+                        f"Generate one with: ssh-keygen -t ed25519 -f {expanded}"
+                    )
+                storage = click.prompt(
+                    "Store key in the secrets backend (sm) or remember the path only (path)?",
+                    type=click.Choice(["sm", "path"]),
+                    default="sm",
+                )
+                if storage == "path":
+                    gh.ssh_key_path = str(expanded)
+                    click.echo(f"registered ssh key path: {gh.ssh_key_path}")
+                else:
+                    content = expanded.read_bytes()
+                    ssh_ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="ssh_key")
+                    gh.ssh_key_ref = backend.put(ssh_ref_name, content)
+                    click.echo(f"stored ssh key contents at {gh.ssh_key_ref}")
+
+        if did_something:
+            prof.github = gh
+            cfg.profiles[profile_name] = prof
+            save_config(cfg)
         return
 
     if service == "slack":
@@ -386,7 +571,10 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
         raise click.ClickException(f"profile {profile_name!r} not found")
     backend = load_backend(cfg.secrets_backend)
     if service == "github" and prof.github:
-        backend.delete(prof.github.token_ref)
+        if prof.github.token_ref:
+            backend.delete(prof.github.token_ref)
+        if prof.github.ssh_key_ref:
+            backend.delete(prof.github.ssh_key_ref)
         prof.github = None
     elif service == "google" and prof.google:
         if prof.google.refresh_token_ref:
@@ -414,12 +602,25 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
 @click.option("--gc", is_flag=True, help="Sweep stale ephemeral files for dead PIDs")
 def doctor_cmd(gc: bool) -> None:
     cfg = _require_config()
+    click.echo(f"config:    {config_path()}")
+    click.echo(f"backend:   {cfg.secrets_backend.type}")
+    for k, v in cfg.secrets_backend.options.items():
+        click.echo(f"             {k}={v}")
+    for k, v in (cfg.bootstrap or {}).items():
+        click.echo(f"bootstrap: {k}={v}")
+    names = ", ".join(cfg.profiles) or "(none)"
+    click.echo(f"profiles:  {len(cfg.profiles)} [{names}]")
+
     backend = load_backend(cfg.secrets_backend)
     try:
         backend.health_check()
     except Exception as e:
         raise click.ClickException(f"backend health check failed: {e}")
-    click.echo(f"backend ({cfg.secrets_backend.type}): OK")
+    click.echo("backend health: OK")
+
+    if cfg.secrets_backend.type == "gcp_secret_manager":
+        _check_adc_quota_project(cfg.secrets_backend.options.get("project"))
+
     if gc:
         EphemeralStore.gc()
         click.echo("ephemeral GC: done")
