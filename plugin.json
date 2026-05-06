@@ -1,6 +1,0 @@
-{
-  "name": "hat",
-  "version": "0.1.0",
-  "description": "Multi-identity credential router for Google, GitHub, and Slack",
-  "skills": ["plugins/skills/hat"]
-}

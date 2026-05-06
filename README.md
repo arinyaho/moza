@@ -39,14 +39,26 @@ hat login personal --service google --email me@x.com --client-id <id>
 hat login personal --service slack --workspace team-a
 ```
 
-See `plugins/skills/hat/references/` for full docs.
+See `skills/hat/references/` for full docs.
 
-## Claude Code plugin
+## As an agent skill
 
-This repo is a Claude Code plugin. Install via:
+`hat` ships a SKILL.md that teaches AI agents (Claude Code, Hermes Agent) when and how to invoke the CLI on your behalf. The skill assumes the `hat` binary is already on `PATH` — install the CLI first (above), then add the skill:
+
+### Claude Code
 
 ```
-/plugin install <git-url>
+/plugin marketplace add arinyaho/hat
+/plugin install hat@arinyaho/hat
 ```
 
-Once installed, Claude will use the `hat` skill automatically when you mention identity-scoped work.
+### Hermes Agent
+
+```bash
+hermes skills install arinyaho/hat
+# or manually:
+git clone https://github.com/arinyaho/hat ~/.hermes/skills/_src/hat
+ln -s ~/.hermes/skills/_src/hat/skills/hat ~/.hermes/skills/hat
+```
+
+Once installed, the agent invokes `hat` automatically when you mention identity-scoped work ("as my work account", "switch to personal", etc.).
