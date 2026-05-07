@@ -22,7 +22,7 @@ Trigger any time:
 - The user asks "as <email>" / "from <email>" / "with my <something> account".
 - A multi-account task (one profile per Claude session) — `hat` is what isolates them.
 
-If the user has not configured `hat`, run `hat list` to surface that there are no profiles, and suggest `hat init`.
+If the user has not configured `hat`, **don't just punt** — drive the conversational setup flow described in `references/setup-flow.md`. Detect state with `hat doctor` (or `hat list` if doctor fails), then guide the user step by step.
 
 ## Core commands
 
@@ -70,7 +70,8 @@ If the profile has only one workspace, `$HAT_SLACK_DEFAULT_TOKEN` is also export
 
 ## References
 
+- `references/setup-flow.md` — conversational setup: walk a fresh user from zero to a working profile
 - `references/schema.md` — config file format
-- `references/bootstrap.md` — first-time setup per backend
+- `references/bootstrap.md` — first-time setup per backend (manual, for users who'd rather type the commands themselves)
 - `references/usage.md` — recipes for common tasks
 - `references/troubleshooting.md` — common errors
