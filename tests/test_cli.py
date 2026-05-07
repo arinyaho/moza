@@ -171,6 +171,59 @@ def test_token_google_prints_access_token(runner, hat_cfg, mocker):
     assert "ya29-access" in result.output
 
 
+def test_init_non_interactive_keychain(runner, hat_cfg, mocker):
+    mocker.patch("hat.cli.load_backend").return_value.health_check.return_value = None
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "macos_keychain", "--service-prefix", "hat-"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["secrets_backend"]["type"] == "macos_keychain"
+
+
+def test_init_non_interactive_gcp(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    result = runner.invoke(
+        main,
+        ["init",
+         "--backend", "gcp_secret_manager",
+         "--project", "my-proj-1",
+         "--bootstrap-email", "me@x.com"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["secrets_backend"]["project"] == "my-proj-1"
+    assert payload["bootstrap"]["gcp_account"] == "me@x.com"
+
+
+def test_init_yes_overwrites_existing(runner, hat_cfg, mocker):
+    hat_cfg.parent.mkdir(parents=True, exist_ok=True)
+    hat_cfg.write_text("{}")
+    mocker.patch("hat.cli.load_backend").return_value.health_check.return_value = None
+    result = runner.invoke(
+        main,
+        ["init", "-y", "--backend", "macos_keychain", "--service-prefix", "hat-"],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_login_github_token_stdin(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github", "--username", "me", "--token-stdin"],
+        input="y\nghp_pasted_token\n",
+    )
+    assert result.exit_code == 0, result.output
+    args = backend.put.call_args[0]
+    assert args[1] == b"ghp_pasted_token"
+
+
 def test_login_github_ssh_key_path_skips_pat_prompt(runner, hat_cfg, mocker, tmp_path):
     mocker.patch("hat.cli.load_backend")
     runner.invoke(main, ["init"], input="3\nhat-\n")
@@ -244,6 +297,42 @@ def test_login_github_pat_and_ssh_compose_across_calls(runner, hat_cfg, mocker, 
     gh = payload["profiles"]["cryptolab"]["github"]
     assert gh["token_ref"] == "ref://gh"
     assert gh["ssh_key_path"] == str(keyfile)
+
+
+def test_preflight_keychain_passes(runner, mocker):
+    mocker.patch("hat.cli.subprocess.run")
+    result = runner.invoke(main, ["preflight", "--backend", "macos_keychain", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["backend"] == "macos_keychain"
+    assert all(c["ok"] for c in payload["checks"])
+
+
+def test_preflight_gcp_reports_missing_pieces(runner, hat_cfg, mocker):
+    # gcloud --version succeeds, project describe fails, services list returns empty,
+    # ADC file missing → preflight should exit non-zero with structured findings.
+    import subprocess as _sp
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["gcloud", "--version"]:
+            return _sp.CompletedProcess(cmd, 0, stdout="Google Cloud SDK 999.0.0\n", stderr="")
+        if cmd[:3] == ["gcloud", "projects", "describe"]:
+            return _sp.CompletedProcess(cmd, 1, stdout="", stderr="permission denied")
+        if cmd[:3] == ["gcloud", "services", "list"]:
+            return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+    mocker.patch("hat.cli.subprocess.run", side_effect=fake_run)
+    mocker.patch("hat.cli.Path.exists", return_value=False)  # ADC missing
+    result = runner.invoke(
+        main,
+        ["preflight", "--backend", "gcp_secret_manager",
+         "--project", "missing-proj", "--account", "me@x.com", "--json"],
+    )
+    assert result.exit_code != 0
+    payload = json.loads(result.output)
+    checks = {c["check"]: c for c in payload["checks"]}
+    assert checks["gcloud installed"]["ok"]
+    assert not checks["project 'missing-proj' accessible"]["ok"]
+    assert not checks["Secret Manager API enabled"]["ok"]
 
 
 def test_logout_removes_service(runner, hat_cfg, mocker):

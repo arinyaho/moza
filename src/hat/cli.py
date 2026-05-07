@@ -189,35 +189,66 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 
 
 @main.command("init")
-def init_cmd() -> None:
-    """Interactive bootstrap wizard."""
+@click.option("--backend", type=click.Choice(["gcp_secret_manager", "oci_vault", "macos_keychain"]),
+              help="Skip the backend picker.")
+@click.option("--project", help="(gcp) project ID")
+@click.option("--bootstrap-email", help="(gcp) bootstrap account email")
+@click.option("--vault-ocid", help="(oci) vault OCID")
+@click.option("--compartment-ocid", help="(oci) compartment OCID")
+@click.option("--region", default=None, help="(oci) region (default: ap-chuncheon-1)")
+@click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'hat-')")
+@click.option("--yes", "-y", is_flag=True, help="Overwrite existing config without prompting.")
+def init_cmd(
+    backend: str | None,
+    project: str | None,
+    bootstrap_email: str | None,
+    vault_ocid: str | None,
+    compartment_ocid: str | None,
+    region: str | None,
+    service_prefix: str | None,
+    yes: bool,
+) -> None:
+    """Bootstrap wizard. Supply flags for non-interactive setup; missing ones are prompted."""
     if config_path().exists():
-        click.confirm(f"{config_path()} exists. Overwrite?", abort=True)
+        if yes:
+            pass
+        else:
+            click.confirm(f"{config_path()} exists. Overwrite?", abort=True)
 
-    click.echo("Pick a secrets backend:")
-    click.echo("  1) gcp_secret_manager")
-    click.echo("  2) oci_vault")
-    click.echo("  3) macos_keychain")
-    choice = click.prompt("Choice", type=click.Choice(["1", "2", "3"]))
+    if backend is None:
+        click.echo("Pick a secrets backend:")
+        click.echo("  1) gcp_secret_manager")
+        click.echo("  2) oci_vault")
+        click.echo("  3) macos_keychain")
+        choice = click.prompt("Choice", type=click.Choice(["1", "2", "3"]))
+        backend = {"1": "gcp_secret_manager", "2": "oci_vault", "3": "macos_keychain"}[choice]
 
-    if choice == "1":
-        project = click.prompt("GCP project ID").strip()
+    if backend == "gcp_secret_manager":
+        if not project:
+            project = click.prompt("GCP project ID").strip()
+        project = project.strip()
         _validate_gcp_project_id(project)
-        bootstrap_account = _clean_email(click.prompt("Bootstrap GCP account email"))
+        if not bootstrap_email:
+            bootstrap_email = click.prompt("Bootstrap GCP account email")
+        bootstrap_email = _clean_email(bootstrap_email)
         backend_cfg = BackendConfig(type="gcp_secret_manager", options={"project": project})
-        bootstrap = {"gcp_account": bootstrap_account}
-    elif choice == "2":
-        vault_ocid = click.prompt("Vault OCID").strip()
-        compartment_ocid = click.prompt("Compartment OCID").strip()
-        region = click.prompt("Region", default="ap-chuncheon-1")
+        bootstrap = {"gcp_account": bootstrap_email}
+    elif backend == "oci_vault":
+        if not vault_ocid:
+            vault_ocid = click.prompt("Vault OCID").strip()
+        if not compartment_ocid:
+            compartment_ocid = click.prompt("Compartment OCID").strip()
+        if region is None:
+            region = click.prompt("Region", default="ap-chuncheon-1")
         backend_cfg = BackendConfig(
             type="oci_vault",
-            options={"vault_ocid": vault_ocid, "compartment_ocid": compartment_ocid, "region": region},
+            options={"vault_ocid": vault_ocid.strip(), "compartment_ocid": compartment_ocid.strip(), "region": region},
         )
         bootstrap = {}
-    else:
-        prefix = click.prompt("Service prefix", default="hat-")
-        backend_cfg = BackendConfig(type="macos_keychain", options={"service_prefix": prefix})
+    else:  # macos_keychain
+        if service_prefix is None:
+            service_prefix = click.prompt("Service prefix", default="hat-")
+        backend_cfg = BackendConfig(type="macos_keychain", options={"service_prefix": service_prefix})
         bootstrap = {}
 
     cfg = Config(
@@ -374,6 +405,8 @@ def _require_config() -> Config:
 @click.option("--host", default="github.com", help="(github) host (for GHES)")
 @click.option("--ssh-key-path", "ssh_key_path", help="(github) register SSH key by path (per-device)")
 @click.option("--ssh-key", "ssh_key", help="(github) read SSH key file and store contents in the secrets backend")
+@click.option("--token-stdin", "token_stdin", is_flag=True,
+              help="(github/slack) read the token from stdin instead of prompting (for non-interactive flows)")
 @click.option("--client-id", help="(google) OAuth client ID")
 def login_cmd(
     profile_name: str,
@@ -384,6 +417,7 @@ def login_cmd(
     host: str,
     ssh_key_path: str | None,
     ssh_key: str | None,
+    token_stdin: bool,
     client_id: str | None,
 ) -> None:
     cfg = _require_config()
@@ -418,13 +452,18 @@ def login_cmd(
         if not (ssh_key_path or ssh_key):
             if not gh.username:
                 gh.username = click.prompt("GitHub username")
-            token = click.prompt("Paste a GitHub token", hide_input=True)
+            if token_stdin:
+                token = sys.stdin.read().strip()
+                if not token:
+                    raise click.ClickException("--token-stdin set but stdin was empty")
+            else:
+                token = click.prompt("Paste a GitHub token", hide_input=True)
             ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="token")
             gh.token_ref = backend.put(ref_name, token.encode("utf-8"))
             click.echo(f"stored github token for {profile_name} at {gh.token_ref}")
             did_something = True
 
-            if click.confirm("Also register an SSH key for git operations?", default=False):
+            if not token_stdin and click.confirm("Also register an SSH key for git operations?", default=False):
                 default_path = str(Path.home() / ".ssh" / "id_ed25519")
                 with _readline_path_completion():
                     path = click.prompt("SSH private key path", default=default_path)
@@ -457,7 +496,12 @@ def login_cmd(
     if service == "slack":
         if not workspace:
             raise click.ClickException("--workspace is required for --service slack")
-        token = click.prompt("Paste a Slack user token (xoxp-...)", hide_input=True)
+        if token_stdin:
+            token = sys.stdin.read().strip()
+            if not token:
+                raise click.ClickException("--token-stdin set but stdin was empty")
+        else:
+            token = click.prompt("Paste a Slack user token (xoxp-...)", hide_input=True)
         ref_name = render_name(cfg.secret_naming.slack_token, profile=profile_name, workspace=workspace)
         ref = backend.put(ref_name, token.encode("utf-8"))
         prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
@@ -624,3 +668,92 @@ def doctor_cmd(gc: bool) -> None:
     if gc:
         EphemeralStore.gc()
         click.echo("ephemeral GC: done")
+
+
+@main.command("preflight")
+@click.option("--backend", type=click.Choice(["gcp_secret_manager", "oci_vault", "macos_keychain"]),
+              default="gcp_secret_manager", help="Backend to check prerequisites for.")
+@click.option("--project", help="(gcp) project to verify access on")
+@click.option("--account", help="(gcp) account email to verify")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON for agent orchestration.")
+def preflight_cmd(backend: str, project: str | None, account: str | None, as_json: bool) -> None:
+    """Check environment readiness before `hat init`. Useful for agent-driven setup."""
+    findings: list[dict] = []
+
+    def add(name: str, ok: bool, detail: str = "", fix: str = "") -> None:
+        findings.append({"check": name, "ok": ok, "detail": detail, "fix": fix})
+
+    if backend == "gcp_secret_manager":
+        try:
+            r = subprocess.run(["gcloud", "--version"], capture_output=True, text=True, check=True)
+            first = (r.stdout.splitlines() or [""])[0]
+            add("gcloud installed", True, first)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            add("gcloud installed", False, "", "Install Google Cloud SDK: https://cloud.google.com/sdk/docs/install")
+
+        if project:
+            cmd = ["gcloud", "projects", "describe", project]
+            if account:
+                cmd.append(f"--account={account}")
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode == 0:
+                add(f"project {project!r} accessible", True)
+            else:
+                add(f"project {project!r} accessible", False, r.stderr.strip().splitlines()[-1] if r.stderr else "",
+                    f"gcloud projects list --account={account or '<email>'}  # find the right project ID")
+
+            r = subprocess.run(
+                ["gcloud", "services", "list", "--enabled", f"--project={project}",
+                 "--filter=config.name:secretmanager.googleapis.com", "--format=value(config.name)"]
+                + ([f"--account={account}"] if account else []),
+                capture_output=True, text=True,
+            )
+            enabled = "secretmanager.googleapis.com" in r.stdout
+            if enabled:
+                add("Secret Manager API enabled", True)
+            else:
+                add("Secret Manager API enabled", False, "",
+                    f"gcloud services enable secretmanager.googleapis.com --project={project}"
+                    + (f" --account={account}" if account else ""))
+
+        adc_path = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        if adc_path.exists():
+            try:
+                adc = json.loads(adc_path.read_text())
+                qp = adc.get("quota_project_id")
+                add("ADC present", True, f"quota_project_id={qp or '(unset)'}")
+            except (OSError, json.JSONDecodeError) as e:
+                add("ADC present", False, str(e),
+                    f"gcloud auth application-default login --account={account or '<email>'}")
+        else:
+            add("ADC present", False, "no application_default_credentials.json",
+                f"gcloud auth application-default login --account={account or '<email>'}")
+
+    elif backend == "oci_vault":
+        oci_cfg = Path.home() / ".oci" / "config"
+        add("~/.oci/config", oci_cfg.exists(), "",
+            "Create an API key in OCI Console and run `oci setup config`")
+
+    elif backend == "macos_keychain":
+        try:
+            subprocess.run(["security", "list-keychains"], capture_output=True, check=True)
+            add("security CLI", True)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            add("security CLI", False, "", "macOS only — this backend isn't supported on this OS")
+
+    if as_json:
+        click.echo(json.dumps({"backend": backend, "checks": findings}, indent=2))
+        if any(not f["ok"] for f in findings):
+            sys.exit(1)
+        return
+
+    for f in findings:
+        mark = "✓" if f["ok"] else "✗"
+        line = f"  {mark} {f['check']}"
+        if f["detail"]:
+            line += f" — {f['detail']}"
+        click.echo(line)
+        if not f["ok"] and f["fix"]:
+            click.echo(f"      fix: {f['fix']}")
+    if any(not f["ok"] for f in findings):
+        sys.exit(1)
