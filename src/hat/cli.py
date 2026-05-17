@@ -109,6 +109,35 @@ def _clean_email(s: str) -> str:
     return m.group(1) if m else s
 
 
+def _read_secret(label: str, *, secret_cmd: str | None, from_stdin: bool) -> str:
+    """Resolve a secret without it reaching argv, shell history, or ps.
+
+    --secret-cmd: run the command, use its stdout (e.g. `op read op://...`).
+                  Only the reference lands in history, never the secret.
+    --token-stdin: read from a pipe.
+    else: hidden interactive prompt (getpass — never echoed, never in argv).
+    """
+    if secret_cmd:
+        try:
+            out = subprocess.run(
+                secret_cmd, shell=True, capture_output=True, text=True, check=True
+            ).stdout
+        except subprocess.CalledProcessError as exc:
+            raise click.ClickException(
+                f"--secret-cmd failed (exit {exc.returncode}): {(exc.stderr or '').strip()}"
+            )
+        secret = out.strip()
+        if not secret:
+            raise click.ClickException("--secret-cmd produced empty output")
+        return secret
+    if from_stdin:
+        secret = sys.stdin.read().strip()
+        if not secret:
+            raise click.ClickException("--token-stdin set but stdin was empty")
+        return secret
+    return click.prompt(label, hide_input=True)
+
+
 def _read_ssh_key(path: Path) -> bytes:
     try:
         return path.read_bytes()
@@ -424,7 +453,12 @@ def _require_config() -> Config:
 @click.option("--ssh-key-path", "ssh_key_path", help="(github) register SSH key by path (per-device)")
 @click.option("--ssh-key", "ssh_key", help="(github) read SSH key file and store contents in the secrets backend")
 @click.option("--token-stdin", "token_stdin", is_flag=True,
-              help="(github/slack) read the token from stdin instead of prompting (for non-interactive flows)")
+              help="(github/slack/aws) read the secret from stdin instead of prompting")
+@click.option("--secret-cmd", "secret_cmd",
+              help="Run this command and use its stdout as the secret "
+                   "(e.g. 'op read op://Private/item/field'). Keeps the secret out of argv/history.")
+@click.option("--refresh-token-stdin", "refresh_token_stdin", is_flag=True,
+              help="(google) read an existing refresh token from stdin instead of running the browser flow")
 @click.option("--client-id", help="(google) OAuth client ID")
 @click.option("--access-key-id", "access_key_id", help="(aws) AWS access key ID")
 @click.option("--aws-profile", "aws_profile", help="(aws) existing ~/.aws profile name")
@@ -441,6 +475,8 @@ def login_cmd(
     ssh_key_path: str | None,
     ssh_key: str | None,
     token_stdin: bool,
+    secret_cmd: str | None,
+    refresh_token_stdin: bool,
     client_id: str | None,
     access_key_id: str | None,
     aws_profile: str | None,
@@ -480,12 +516,7 @@ def login_cmd(
         if not (ssh_key_path or ssh_key):
             if not gh.username:
                 gh.username = click.prompt("GitHub username")
-            if token_stdin:
-                token = sys.stdin.read().strip()
-                if not token:
-                    raise click.ClickException("--token-stdin set but stdin was empty")
-            else:
-                token = click.prompt("Paste a GitHub token", hide_input=True)
+            token = _read_secret("Paste a GitHub token", secret_cmd=secret_cmd, from_stdin=token_stdin)
             ref_name = render_name(cfg.secret_naming.default, profile=profile_name, service="github", kind="token")
             gh.token_ref = backend.put(ref_name, token.encode("utf-8"))
             click.echo(f"stored github token for {profile_name} at {gh.token_ref}")
@@ -524,12 +555,7 @@ def login_cmd(
     if service == "slack":
         if not workspace:
             raise click.ClickException("--workspace is required for --service slack")
-        if token_stdin:
-            token = sys.stdin.read().strip()
-            if not token:
-                raise click.ClickException("--token-stdin set but stdin was empty")
-        else:
-            token = click.prompt("Paste a Slack user token (xoxp-...)", hide_input=True)
+        token = _read_secret("Paste a Slack user token (xoxp-...)", secret_cmd=secret_cmd, from_stdin=token_stdin)
         ref_name = render_name(cfg.secret_naming.slack_token, profile=profile_name, workspace=workspace)
         ref = backend.put(ref_name, token.encode("utf-8"))
         prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
@@ -545,13 +571,18 @@ def login_cmd(
         if not client_id:
             _print_oauth_client_hint(cfg)
             client_id = click.prompt("OAuth client ID")
-        client_secret = click.prompt("OAuth client secret", hide_input=True)
+        client_secret = _read_secret("OAuth client secret", secret_cmd=secret_cmd, from_stdin=False)
 
-        refresh = google_installed_app_flow(
-            client_id=client_id,
-            client_secret=client_secret,
-            scopes=GOOGLE_DEFAULT_SCOPES,
-        )
+        if refresh_token_stdin:
+            refresh = sys.stdin.read().strip()
+            if not refresh:
+                raise click.ClickException("--refresh-token-stdin set but stdin was empty")
+        else:
+            refresh = google_installed_app_flow(
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=GOOGLE_DEFAULT_SCOPES,
+            )
         oauth_secret_ref = backend.put(
             render_name(cfg.secret_naming.default, profile=profile_name, service="google", kind="oauth_client_secret"),
             client_secret.encode("utf-8"),
@@ -586,12 +617,7 @@ def login_cmd(
             aws.profile = aws_profile
         if access_key_id:
             key_id = access_key_id
-            if token_stdin:
-                secret = sys.stdin.read().strip()
-                if not secret:
-                    raise click.ClickException("--token-stdin set but stdin was empty")
-            else:
-                secret = click.prompt("AWS secret access key", hide_input=True)
+            secret = _read_secret("AWS secret access key", secret_cmd=secret_cmd, from_stdin=token_stdin)
             ref_id = backend.put(
                 render_name(cfg.secret_naming.default, profile=profile_name, service="aws", kind="access_key_id"),
                 key_id.encode("utf-8"),
@@ -614,7 +640,7 @@ def login_cmd(
                 aws.region = click.prompt("Default region (optional, blank to skip)", default="", show_default=False) or None
             else:
                 key_id = click.prompt("AWS access key ID")
-                secret = click.prompt("AWS secret access key", hide_input=True)
+                secret = _read_secret("AWS secret access key", secret_cmd=secret_cmd, from_stdin=False)
                 aws.region = click.prompt("Default region (optional, blank to skip)", default="", show_default=False) or None
                 ref_id = backend.put(
                     render_name(cfg.secret_naming.default, profile=profile_name, service="aws", kind="access_key_id"),

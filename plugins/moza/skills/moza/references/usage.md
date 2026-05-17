@@ -37,3 +37,37 @@ gcloud projects list
 ```bash
 hat exec work -- gh pr list
 ```
+
+## Adding secrets without leaving a trace
+
+Every `hat login` secret is read via a hidden `getpass` prompt — the value never
+reaches `argv`, shell history, or `ps`. Three ways to supply it:
+
+```bash
+# 1. Interactive (run it yourself, NOT via an agent's non-interactive shell)
+hat login work --service github --username u
+#   → "Paste a GitHub token:" (input hidden, nothing logged)
+
+# 2. From a credential manager — only the *reference* hits history, never the secret
+hat login work --service github --username u \
+  --secret-cmd 'op read op://Private/github-work/token'
+hat login work --service aws --access-key-id AKIA... \
+  --secret-cmd 'gcloud secrets versions access latest --secret=aws-work'
+
+# 3. From a pipe (reference/path in history, not the secret)
+op read op://Private/slack-team-a/token | \
+  hat login work --service slack --workspace team-a --token-stdin
+```
+
+Google needs two secrets (client secret + refresh token):
+
+```bash
+hat login work --service google --email me@x.com --client-id <id> \
+  --secret-cmd 'op read op://Private/google-oauth/client_secret' \
+  --refresh-token-stdin < ~/saved-refresh-token
+```
+
+Rule of thumb: never type or paste a secret as a CLI argument, and never ask an
+AI agent to run `hat login` for you — its shell can't answer a hidden prompt, so
+the secret would end up in the session transcript. Hand it a `--secret-cmd`
+reference instead.
