@@ -12,10 +12,12 @@ import click
 from hat.backends import load_backend
 from hat.ephemeral import EphemeralStore
 from hat.config import (
+    AWSService,
     BackendConfig,
     Config,
     GitHubService,
     GoogleService,
+    OCIService,
     Profile,
     SecretNaming,
     SlackWorkspace,
@@ -349,6 +351,15 @@ def list_cmd() -> None:
             services.append(f"github:{prof.github.username}")
         if prof.slack:
             services.append(f"slack:[{', '.join(w.workspace for w in prof.slack)}]")
+        if prof.aws:
+            parts = []
+            if prof.aws.profile:
+                parts.append(f"profile={prof.aws.profile}")
+            if prof.aws.region:
+                parts.append(f"region={prof.aws.region}")
+            services.append(f"aws({','.join(parts) if parts else 'keys'})")
+        if prof.oci:
+            services.append(f"oci:{prof.oci.profile or 'DEFAULT'}")
         click.echo(f"{name}\t{' '.join(services) or '(empty)'}")
 
 
@@ -365,9 +376,14 @@ def status_cmd() -> None:
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GH_TOKEN",
         "HAT_SLACK_TOKENS",
+        "AWS_PROFILE",
+        "AWS_DEFAULT_REGION",
+        "AWS_ACCESS_KEY_ID",
+        "OCI_CLI_PROFILE",
+        "OCI_CLI_CONFIG_FILE",
     ):
         if v := os.environ.get(var):
-            shown = v if var != "GH_TOKEN" else "<set>"
+            shown = v if var not in ("GH_TOKEN", "AWS_ACCESS_KEY_ID") else "<set>"
             click.echo(f"  {var}={shown}")
 
 
@@ -386,6 +402,8 @@ def whoami_cmd(profile: str | None) -> None:
         "google": prof.google.email if prof.google else None,
         "github": prof.github.username if prof.github else None,
         "slack": [w.workspace for w in prof.slack],
+        "aws": {"profile": prof.aws.profile, "region": prof.aws.region} if prof.aws else None,
+        "oci": {"profile": prof.oci.profile} if prof.oci else None,
     }, indent=2))
 
 
@@ -398,7 +416,7 @@ def _require_config() -> Config:
 
 @main.command("login")
 @click.argument("profile_name")
-@click.option("--service", type=click.Choice(["google", "github", "slack"]), required=True)
+@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci"]), required=True)
 @click.option("--workspace", help="Slack workspace label (required for --service slack)")
 @click.option("--email", help="(google) account email")
 @click.option("--username", help="(github) username")
@@ -408,6 +426,11 @@ def _require_config() -> Config:
 @click.option("--token-stdin", "token_stdin", is_flag=True,
               help="(github/slack) read the token from stdin instead of prompting (for non-interactive flows)")
 @click.option("--client-id", help="(google) OAuth client ID")
+@click.option("--access-key-id", "access_key_id", help="(aws) AWS access key ID")
+@click.option("--aws-profile", "aws_profile", help="(aws) existing ~/.aws profile name")
+@click.option("--oci-profile", "oci_profile", help="(oci) existing ~/.oci/config profile name")
+@click.option("--config-file", "config_file", help="(oci) path to OCI config file (default: ~/.oci/config)")
+@click.option("--region", "region", help="(aws) default region")
 def login_cmd(
     profile_name: str,
     service: str,
@@ -419,6 +442,11 @@ def login_cmd(
     ssh_key: str | None,
     token_stdin: bool,
     client_id: str | None,
+    access_key_id: str | None,
+    aws_profile: str | None,
+    oci_profile: str | None,
+    config_file: str | None,
+    region: str | None,
 ) -> None:
     cfg = _require_config()
     if profile_name not in cfg.profiles:
@@ -549,6 +577,79 @@ def login_cmd(
         click.echo(f"stored google identity for {profile_name}")
         return
 
+    if service == "aws":
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        aws = prof.aws or AWSService()
+        if region:
+            aws.region = region
+        if aws_profile:
+            aws.profile = aws_profile
+        if access_key_id:
+            key_id = access_key_id
+            if token_stdin:
+                secret = sys.stdin.read().strip()
+                if not secret:
+                    raise click.ClickException("--token-stdin set but stdin was empty")
+            else:
+                secret = click.prompt("AWS secret access key", hide_input=True)
+            ref_id = backend.put(
+                render_name(cfg.secret_naming.default, profile=profile_name, service="aws", kind="access_key_id"),
+                key_id.encode("utf-8"),
+            )
+            ref_secret = backend.put(
+                render_name(cfg.secret_naming.default, profile=profile_name, service="aws", kind="secret_access_key"),
+                secret.encode("utf-8"),
+            )
+            aws.access_key_id_ref = ref_id
+            aws.secret_access_key_ref = ref_secret
+            click.echo(f"stored AWS credentials for {profile_name}")
+        elif not aws_profile and not region:
+            choice = click.prompt(
+                "Store AWS credentials (keys) or reference an existing ~/.aws profile?",
+                type=click.Choice(["keys", "profile"]),
+                default="keys",
+            )
+            if choice == "profile":
+                aws.profile = click.prompt("~/.aws profile name", default="default")
+                aws.region = click.prompt("Default region (optional, blank to skip)", default="", show_default=False) or None
+            else:
+                key_id = click.prompt("AWS access key ID")
+                secret = click.prompt("AWS secret access key", hide_input=True)
+                aws.region = click.prompt("Default region (optional, blank to skip)", default="", show_default=False) or None
+                ref_id = backend.put(
+                    render_name(cfg.secret_naming.default, profile=profile_name, service="aws", kind="access_key_id"),
+                    key_id.encode("utf-8"),
+                )
+                ref_secret = backend.put(
+                    render_name(cfg.secret_naming.default, profile=profile_name, service="aws", kind="secret_access_key"),
+                    secret.encode("utf-8"),
+                )
+                aws.access_key_id_ref = ref_id
+                aws.secret_access_key_ref = ref_secret
+                click.echo(f"stored AWS credentials for {profile_name}")
+        prof.aws = aws
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        return
+
+    if service == "oci":
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        oci = prof.oci or OCIService()
+        if oci_profile:
+            oci.profile = oci_profile
+        if config_file:
+            oci.config_file = config_file
+        if not oci_profile and not config_file:
+            oci.profile = click.prompt("~/.oci/config profile name", default="DEFAULT")
+            cf = click.prompt("Custom OCI config file path (blank for default ~/.oci/config)", default="", show_default=False)
+            if cf:
+                oci.config_file = str(Path(cf).expanduser())
+        prof.oci = oci
+        cfg.profiles[profile_name] = prof
+        save_config(cfg)
+        click.echo(f"stored OCI identity for {profile_name} (profile={oci.profile!r})")
+        return
+
 
 @main.command("use")
 @click.argument("profile_name")
@@ -606,7 +707,7 @@ def token_cmd(service: str) -> None:
 
 @main.command("logout")
 @click.argument("profile_name")
-@click.option("--service", type=click.Choice(["google", "github", "slack"]), required=True)
+@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci"]), required=True)
 @click.option("--workspace", help="Slack workspace label (required for --service slack)")
 def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
     cfg = _require_config()
@@ -638,6 +739,14 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
             else:
                 kept.append(w)
         prof.slack = kept
+    elif service == "aws" and prof.aws:
+        if prof.aws.access_key_id_ref:
+            backend.delete(prof.aws.access_key_id_ref)
+        if prof.aws.secret_access_key_ref:
+            backend.delete(prof.aws.secret_access_key_ref)
+        prof.aws = None
+    elif service == "oci":
+        prof.oci = None
     save_config(cfg)
     click.echo(f"removed {service} from {profile_name}")
 

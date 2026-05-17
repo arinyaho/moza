@@ -5,8 +5,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from hat.config import (
+    AWSService,
     GitHubService,
     GoogleService,
+    OCIService,
     Profile,
     SlackWorkspace,
 )
@@ -22,6 +24,8 @@ def fake_backend():
         "gh-token-ref": b"ghp_xxx",
         "slack-team-a-ref": b"xoxp-aaa",
         "slack-team-b-ref": b"xoxp-bbb",
+        "aws-key-ref": b"AKIAIOSFODNN7EXAMPLE",
+        "aws-secret-ref": b"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     }[ref]
     return b
 
@@ -144,3 +148,43 @@ def test_slack_writes_workspace_map(monkeypatch, tmp_path, fake_backend):
     )
     b2 = build_env(prof2, fake_backend, pid=555)
     assert b2.env["HAT_SLACK_DEFAULT_TOKEN"] == "xoxp-aaa"
+
+
+def test_aws_with_keys_sets_env(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    prof = Profile(
+        name="work",
+        aws=AWSService(
+            region="us-east-1",
+            access_key_id_ref="aws-key-ref",
+            secret_access_key_ref="aws-secret-ref",
+        ),
+    )
+    bundle = build_env(prof, fake_backend, pid=600)
+    assert bundle.env["AWS_ACCESS_KEY_ID"] == "AKIAIOSFODNN7EXAMPLE"
+    assert bundle.env["AWS_SECRET_ACCESS_KEY"] == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    assert bundle.env["AWS_DEFAULT_REGION"] == "us-east-1"
+    assert "AWS_PROFILE" not in bundle.env
+
+
+def test_aws_with_profile_sets_env(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    prof = Profile(
+        name="work",
+        aws=AWSService(profile="work-sso", region="ap-northeast-2"),
+    )
+    bundle = build_env(prof, fake_backend, pid=601)
+    assert bundle.env["AWS_PROFILE"] == "work-sso"
+    assert bundle.env["AWS_DEFAULT_REGION"] == "ap-northeast-2"
+    assert "AWS_ACCESS_KEY_ID" not in bundle.env
+
+
+def test_oci_sets_profile_env(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    prof = Profile(
+        name="work",
+        oci=OCIService(profile="WORK", config_file="/home/u/.oci/work.ini"),
+    )
+    bundle = build_env(prof, fake_backend, pid=700)
+    assert bundle.env["OCI_CLI_PROFILE"] == "WORK"
+    assert bundle.env["OCI_CLI_CONFIG_FILE"] == "/home/u/.oci/work.ini"

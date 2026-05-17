@@ -79,4 +79,23 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
             (only,) = mapping.values()
             bundle.env["HAT_SLACK_DEFAULT_TOKEN"] = only
 
+    if profile.aws:
+        aws = profile.aws
+        if aws.access_key_id_ref and aws.secret_access_key_ref:
+            key_id = backend.get(aws.access_key_id_ref).decode("utf-8").strip()
+            secret = backend.get(aws.secret_access_key_ref).decode("utf-8").strip()
+            bundle.env["AWS_ACCESS_KEY_ID"] = key_id
+            bundle.env["AWS_SECRET_ACCESS_KEY"] = secret
+        if aws.profile:
+            bundle.env["AWS_PROFILE"] = aws.profile
+        if aws.region:
+            bundle.env["AWS_DEFAULT_REGION"] = aws.region
+
+    if profile.oci:
+        oci = profile.oci
+        if oci.profile:
+            bundle.env["OCI_CLI_PROFILE"] = oci.profile
+        if oci.config_file:
+            bundle.env["OCI_CLI_CONFIG_FILE"] = oci.config_file
+
     return bundle
