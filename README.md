@@ -49,7 +49,7 @@ See `skills/hat/references/` for full docs.
 
 ```
 /plugin marketplace add arinyaho/hat
-/plugin install hat@moza
+/plugin install moza@arinyaho-hat
 ```
 
 ### Hermes Agent

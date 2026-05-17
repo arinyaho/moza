@@ -1,5 +1,5 @@
 {
-  "name": "hat",
+  "name": "moza",
   "version": "0.1.0",
   "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
   "author": {
