@@ -39,7 +39,7 @@ hat login personal --service google --email me@x.com --client-id <id>
 hat login personal --service slack --workspace team-a
 ```
 
-See `plugins/moza/skills/moza/references/` for full docs.
+See `skills/moza/references/` for full docs.
 
 ## As an agent skill
 
@@ -56,7 +56,7 @@ See `plugins/moza/skills/moza/references/` for full docs.
 
 ```bash
 # Install directly from GitHub
-hermes skills install arinyaho/moza/plugins/moza/skills/moza
+hermes skills install arinyaho/moza/skills/moza
 
 # Or add the repo as a tap source, then install
 hermes skills tap add arinyaho/moza
@@ -64,7 +64,7 @@ hermes skills install hat
 
 # Or manually
 git clone https://github.com/arinyaho/moza ~/.hermes/skills/_src/moza
-ln -s ~/.hermes/skills/_src/moza/plugins/moza/skills/moza ~/.hermes/skills/moza
+ln -s ~/.hermes/skills/_src/moza/skills/moza ~/.hermes/skills/moza
 ```
 
 Once installed, the agent invokes `hat` automatically when you mention identity-scoped work ("as my work account", "switch to personal", etc.).
