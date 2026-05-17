@@ -4,7 +4,7 @@ description: Use when the user wants to act as a specific identity/profile acros
 version: 0.1.0
 author: arinyaho
 license: MIT
-compatibility: requires the `hat` CLI on PATH — install from https://github.com/arinyaho/hat
+compatibility: works best with `hat` on PATH; falls back to source if available
 metadata:
   hermes:
     tags: [identity, credentials, multi-account, gcp, github, slack]
@@ -24,21 +24,38 @@ Trigger any time:
 
 If the user has not configured `hat`, **don't just punt** — drive the conversational setup flow described in `references/setup-flow.md`. Detect state with `hat doctor` (or `hat list` if doctor fails), then guide the user step by step.
 
+## Invoking hat
+
+Before running any `hat` command, resolve the binary:
+
+```bash
+# Prefer installed binary; fall back to source repo
+if command -v hat &>/dev/null; then
+  HAT="hat"
+elif [ -f "$HOME/Projects/hat/src/hat/__main__.py" ]; then
+  HAT="uv run --project $HOME/Projects/hat hat"
+else
+  echo "hat not found — clone https://github.com/arinyaho/moza and run: uv tool install ."
+  exit 1
+fi
+```
+
+Use `$HAT` instead of `hat` in all subsequent commands.
+
 ## Core commands
 
 ```
-hat list                          # see profiles
-hat status                        # what is active in *this* shell
-hat use <profile>                 # prints `export ...`; eval to activate
-hat-use <profile>                 # zsh/bash wrapper that does the eval
-hat exec <profile> -- <cmd...>    # run cmd with the profile's env (no shell mutation)
-hat token google                  # mint a fresh google access token (for curl)
+$HAT list                          # see profiles
+$HAT status                        # what is active in *this* shell
+$HAT use <profile>                 # prints `export ...`; eval to activate
+$HAT exec <profile> -- <cmd...>    # run cmd with the profile's env (no shell mutation)
+$HAT token google                  # mint a fresh google access token (for curl)
 ```
 
 ## Activation pattern
 
 ```bash
-eval "$(hat use work-foo)"
+eval "$($HAT use work-foo)"
 gh pr list                        # uses GH_TOKEN
 gcloud projects list              # uses CLOUDSDK_ACTIVE_CONFIG_NAME
 bq ls -p                           # ditto
