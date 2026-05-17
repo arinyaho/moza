@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "arinyaho-hat",
+  "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
+  "owner": {
+    "name": "arinyaho",
+    "url": "https://github.com/arinyaho"
+  },
+  "plugins": [
+    {
+      "name": "hat",
+      "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
+      "author": {
+        "name": "arinyaho"
+      },
+      "category": "development",
+      "source": ".",
+      "homepage": "https://github.com/arinyaho/hat"
+    }
+  ]
+}
