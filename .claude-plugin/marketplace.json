@@ -17,7 +17,9 @@
       "source": {
         "source": "git-subdir",
         "url": "arinyaho/moza",
-        "path": "plugins/moza"
+        "path": "plugins/moza",
+        "ref": "main",
+        "sha": "0403a8a4be16b27d422dff6f6e73ce3ee8bbca89"
       },
       "homepage": "https://github.com/arinyaho/moza"
     }
