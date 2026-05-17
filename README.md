@@ -55,8 +55,14 @@ See `skills/hat/references/` for full docs.
 ### Hermes Agent
 
 ```bash
-hermes skills install arinyaho/hat
-# or manually:
+# Install directly from GitHub
+hermes skills install arinyaho/hat/skills/hat
+
+# Or add the repo as a tap source, then install
+hermes skills tap add arinyaho/hat
+hermes skills install hat
+
+# Or manually
 git clone https://github.com/arinyaho/hat ~/.hermes/skills/_src/hat
 ln -s ~/.hermes/skills/_src/hat/skills/hat ~/.hermes/skills/hat
 ```
