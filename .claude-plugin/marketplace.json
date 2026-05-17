@@ -14,13 +14,7 @@
         "name": "arinyaho"
       },
       "category": "development",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/arinyaho/moza.git",
-        "path": ".",
-        "ref": "main",
-        "sha": "ab8100be68df550b2bdacb05378022cb8d9ba121"
-      },
+      "source": "./plugins/moza",
       "homepage": "https://github.com/arinyaho/moza"
     }
   ]
