@@ -48,7 +48,7 @@ See `skills/hat/references/` for full docs.
 ### Claude Code
 
 ```
-/plugin marketplace add arinyaho/hat
+/plugin marketplace add arinyaho/moza
 /plugin install moza@arinyaho
 ```
 
@@ -56,14 +56,14 @@ See `skills/hat/references/` for full docs.
 
 ```bash
 # Install directly from GitHub
-hermes skills install arinyaho/hat/skills/hat
+hermes skills install arinyaho/moza/skills/hat
 
 # Or add the repo as a tap source, then install
-hermes skills tap add arinyaho/hat
+hermes skills tap add arinyaho/moza
 hermes skills install hat
 
 # Or manually
-git clone https://github.com/arinyaho/hat ~/.hermes/skills/_src/hat
+git clone https://github.com/arinyaho/moza ~/.hermes/skills/_src/hat
 ln -s ~/.hermes/skills/_src/hat/skills/hat ~/.hermes/skills/hat
 ```
 
