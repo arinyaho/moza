@@ -9,5 +9,6 @@
   "homepage": "https://github.com/arinyaho/moza",
   "repository": "https://github.com/arinyaho/moza",
   "license": "MIT",
-  "keywords": ["identity", "credentials", "multi-account", "secret-manager", "gcp", "github", "slack"]
+  "keywords": ["identity", "credentials", "multi-account", "secret-manager", "gcp", "github", "slack"],
+  "skills": "./skills/moza/"
 }
