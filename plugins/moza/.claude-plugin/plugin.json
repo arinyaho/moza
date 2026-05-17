@@ -4,11 +4,8 @@
   "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
   "author": {
     "name": "arinyaho",
-    "url": "https://github.com/arinyaho"
+    "email": "arinyaho@gmail.com"
   },
   "homepage": "https://github.com/arinyaho/moza",
-  "repository": "https://github.com/arinyaho/moza",
-  "license": "MIT",
-  "keywords": ["identity", "credentials", "multi-account", "secret-manager", "gcp", "github", "slack"],
-  "skills": "./skills/moza/"
+  "license": "MIT"
 }

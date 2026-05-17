@@ -14,7 +14,7 @@
         "name": "arinyaho"
       },
       "category": "development",
-      "source": "./",
+      "source": "./plugins/moza",
       "homepage": "https://github.com/arinyaho/moza"
     }
   ]
