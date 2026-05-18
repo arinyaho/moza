@@ -736,7 +736,6 @@ def test_sync_user_declines_confirm_aborts(runner, hat_cfg, mocker):
 
 def test_push_command_pushes_manifest(runner, hat_cfg, mocker):
     backend = mocker.patch("hat.cli.load_backend").return_value
-    backend.health_check.return_value = None
     mocker.patch("hat.cli.subprocess.run")
     mocker.patch("hat.cli.pull_manifest", return_value=None)
     runner.invoke(

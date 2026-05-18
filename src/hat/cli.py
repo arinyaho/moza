@@ -803,6 +803,8 @@ def push_cmd() -> None:
     """Force-push the current local config to the backend manifest."""
     cfg = _require_config()
     if not is_cloud_backend(cfg.secrets_backend):
+        # Intentionally exit 0 (not an error like sync): pushing a manifest to a
+        # local-only backend is simply meaningless, not a user mistake.
         click.echo("push is a no-op for local backends (macos_keychain)")
         return
     backend = load_backend(cfg.secrets_backend)
