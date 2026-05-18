@@ -798,6 +798,18 @@ def sync_cmd(dry_run: bool, yes: bool) -> None:
     click.echo(f"synced {len(remote.profiles)} profiles from manifest")
 
 
+@main.command("push")
+def push_cmd() -> None:
+    """Force-push the current local config to the backend manifest."""
+    cfg = _require_config()
+    if not is_cloud_backend(cfg.secrets_backend):
+        click.echo("push is a no-op for local backends (macos_keychain)")
+        return
+    backend = load_backend(cfg.secrets_backend)
+    push_manifest(cfg, backend)
+    click.echo("pushed config manifest to backend")
+
+
 @main.command("unset")
 def unset_cmd() -> None:
     sys.stdout.write(emit_unset())

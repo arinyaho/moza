@@ -732,3 +732,31 @@ def test_sync_user_declines_confirm_aborts(runner, hat_cfg, mocker):
     result = runner.invoke(main, ["sync"], input="n\n")
     assert result.exit_code != 0
     assert hat_cfg.read_text() == before  # nothing written
+
+
+def test_push_command_pushes_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    push = mocker.patch("hat.cli.push_manifest")
+    result = runner.invoke(main, ["push"])
+    assert result.exit_code == 0, result.output
+    push.assert_called_once()
+    assert "pushed config manifest" in result.output
+
+
+def test_push_command_noop_on_keychain(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    push = mocker.patch("hat.cli.push_manifest")
+    result = runner.invoke(main, ["push"])
+    assert result.exit_code == 0, result.output
+    push.assert_not_called()
+    assert "no-op" in result.output.lower()
