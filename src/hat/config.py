@@ -94,7 +94,13 @@ def serialize_config(cfg: Config) -> str:
 
 
 def deserialize_config(raw: str | dict) -> Config:
-    data = json.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid config JSON: {exc}") from exc
+    else:
+        data = raw
     version = data.get("$schema_version", data.get("schema_version"))
     if version != SCHEMA_VERSION:
         raise ValueError(f"Unsupported schema_version {version!r}; expected {SCHEMA_VERSION}")
