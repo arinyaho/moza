@@ -15,9 +15,19 @@ def push_manifest(cfg: Config, backend: SecretsBackend) -> None:
     backend.put(MANIFEST_SECRET_NAME, serialize_config(cfg).encode("utf-8"))
 
 
+def _ref_secret_name(ref: str) -> str | None:
+    if "/secrets/" in ref:
+        return ref.split("/secrets/", 1)[1].rsplit("/versions/", 1)[0]
+    if ref.startswith("ref://"):
+        return ref.removeprefix("ref://").rsplit("/versions/", 1)[0]
+    return None
+
+
 def pull_manifest(backend: SecretsBackend) -> Config | None:
     refs = backend.list(prefix=MANIFEST_SECRET_NAME)
     if not refs:
         return None
-    data = backend.get(refs[0])
+    exact = [r for r in refs if _ref_secret_name(r) == MANIFEST_SECRET_NAME]
+    chosen = exact or refs  # OCI OCID refs aren't name-derivable -> keep prefix list
+    data = backend.get(chosen[0])
     return deserialize_config(data.decode("utf-8"))

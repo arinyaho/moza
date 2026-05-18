@@ -68,3 +68,13 @@ def test_pull_raises_on_bad_schema_version():
     b.store[MANIFEST_SECRET_NAME] = b'{"$schema_version": 99, "secrets_backend": {"type": "macos_keychain"}, "bootstrap": {}, "secret_naming": {}, "profiles": {}}'
     with pytest.raises(ValueError, match="schema_version"):
         pull_manifest(b)
+
+
+def test_pull_picks_exact_match_over_prefix_sibling():
+    b = FakeBackend()
+    # a sibling whose name merely starts with the reserved name must be ignored
+    b.store[MANIFEST_SECRET_NAME + "-backup"] = b'{"$schema_version": 1, "secrets_backend": {"type": "macos_keychain"}, "bootstrap": {}, "secret_naming": {}, "profiles": {}}'
+    push_manifest(_cfg(), b)
+    restored = pull_manifest(b)
+    assert restored is not None
+    assert "work" in restored.profiles  # came from the exact manifest, not the sibling
