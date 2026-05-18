@@ -26,6 +26,7 @@ from hat.config import (
     save_config,
 )
 from hat.env import build_env
+from hat.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from hat.oauth import exchange_refresh_token, google_installed_app_flow
 from hat.secret_naming import render_name
 from hat.shell import emit_unset, emit_use
@@ -443,6 +444,27 @@ def _require_config() -> Config:
     return cfg
 
 
+def _save_and_sync(cfg: Config, backend) -> None:
+    save_config(cfg)
+    if is_cloud_backend(cfg.secrets_backend):
+        try:
+            push_manifest(cfg, backend)
+        except Exception as exc:
+            click.echo(
+                f"warning: could not sync config manifest ({exc}). "
+                f"Run `hat push` later.",
+                err=True,
+            )
+
+
+def _reject_reserved_secret_name(name: str) -> None:
+    if name == MANIFEST_SECRET_NAME:
+        raise click.ClickException(
+            f"secret name {name!r} is reserved for the config manifest; "
+            f"rename the profile or adjust secret_naming"
+        )
+
+
 @main.command("login")
 @click.argument("profile_name")
 @click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci"]), required=True)
@@ -488,6 +510,7 @@ def login_cmd(
     if profile_name not in cfg.profiles:
         click.confirm(f"Profile {profile_name!r} not found. Create it?", default=False, abort=True)
     backend = load_backend(cfg.secrets_backend)
+    _reject_reserved_secret_name(profile_name)
 
     if service == "github":
         prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
@@ -549,7 +572,7 @@ def login_cmd(
         if did_something:
             prof.github = gh
             cfg.profiles[profile_name] = prof
-            save_config(cfg)
+            _save_and_sync(cfg, backend)
         return
 
     if service == "slack":
@@ -562,7 +585,7 @@ def login_cmd(
         prof.slack = [w for w in prof.slack if w.workspace != workspace]
         prof.slack.append(SlackWorkspace(workspace=workspace, team_id=None, user_token_ref=ref))
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         click.echo(f"stored slack token for {profile_name}/{workspace} at {ref}")
         return
 
@@ -604,7 +627,7 @@ def login_cmd(
             gcloud_login_required=False,
         )
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         click.echo(f"stored google identity for {profile_name}")
         return
 
@@ -655,7 +678,7 @@ def login_cmd(
                 click.echo(f"stored AWS credentials for {profile_name}")
         prof.aws = aws
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         return
 
     if service == "oci":
@@ -672,7 +695,7 @@ def login_cmd(
                 oci.config_file = str(Path(cf).expanduser())
         prof.oci = oci
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         click.echo(f"stored OCI identity for {profile_name} (profile={oci.profile!r})")
         return
 
@@ -773,7 +796,7 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
         prof.aws = None
     elif service == "oci":
         prof.oci = None
-    save_config(cfg)
+    _save_and_sync(cfg, backend)
     click.echo(f"removed {service} from {profile_name}")
 
 

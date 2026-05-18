@@ -481,3 +481,74 @@ def test_login_google_skips_hint_when_client_id_provided(runner, hat_cfg, mocker
     )
     assert result.exit_code == 0, result.output
     assert "OAuth Desktop client" not in result.output
+
+
+def test_login_github_pushes_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh-token"
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    push = mocker.patch("hat.cli.push_manifest")
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input="y\nmyuser\nghp_token123\nn\n",
+    )
+    assert result.exit_code == 0, result.output
+    push.assert_called_once()
+
+
+def test_login_manifest_push_failure_is_nonfatal(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh-token"
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("hat.cli.push_manifest", side_effect=RuntimeError("network down"))
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input="y\nmyuser\nghp_token123\nn\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "could not sync config manifest" in result.output
+    assert "network down" in result.output
+
+
+def test_login_keychain_does_not_push_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh-token"
+    push = mocker.patch("hat.cli.push_manifest")
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input="y\nmyuser\nghp_token123\nn\n",
+    )
+    assert result.exit_code == 0, result.output
+    push.assert_not_called()
+
+
+def test_logout_pushes_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    push = mocker.patch("hat.cli.push_manifest")
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    runner.invoke(main, ["login", "personal", "--service", "github"],
+                  input="y\nme\ntok\nn\n")
+    push.reset_mock()
+    result = runner.invoke(main, ["logout", "personal", "--service", "github"])
+    assert result.exit_code == 0, result.output
+    push.assert_called_once()
