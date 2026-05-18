@@ -637,3 +637,62 @@ def test_init_user_declines_manifest_import(runner, hat_cfg, mocker):
     assert "Next:" in result.output
     payload = json.loads(hat_cfg.read_text())
     assert payload["profiles"] == {}
+
+
+def test_sync_dry_run_reports_diff_and_writes_nothing(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    before = hat_cfg.read_text()
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "work" in result.output
+    assert hat_cfg.read_text() == before  # unchanged
+
+
+def test_sync_applies_with_yes(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync", "-y"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert "work" in payload["profiles"]
+
+
+def test_sync_no_manifest_errors(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    result = runner.invoke(main, ["sync"])
+    assert result.exit_code != 0
+    assert "no manifest" in result.output.lower()
+
+
+def test_sync_requires_cloud_backend(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(main, ["sync"])
+    assert result.exit_code != 0
+    assert "cloud backend" in result.output.lower()

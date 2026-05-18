@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import click
@@ -746,6 +747,47 @@ def use_cmd(profile_name: str) -> None:
     backend = load_backend(cfg.secrets_backend)
     bundle = build_env(prof, backend)
     sys.stdout.write(emit_use(bundle))
+
+
+def _profile_fingerprint(prof) -> str:
+    return json.dumps(asdict(prof), sort_keys=True)
+
+
+@main.command("sync")
+@click.option("--dry-run", "dry_run", is_flag=True, help="Show what would change; write nothing.")
+@click.option("--yes", "-y", is_flag=True, help="Apply without confirmation.")
+def sync_cmd(dry_run: bool, yes: bool) -> None:
+    """Pull the config manifest from the backend and reconcile local config."""
+    cfg = _require_config()
+    if not is_cloud_backend(cfg.secrets_backend):
+        raise click.ClickException(
+            "sync requires a cloud backend (gcp_secret_manager / oci_vault)"
+        )
+    backend = load_backend(cfg.secrets_backend)
+    remote = pull_manifest(backend)
+    if remote is None:
+        raise click.ClickException("no manifest found in backend (nothing to sync)")
+
+    local, rem = set(cfg.profiles), set(remote.profiles)
+    added = sorted(rem - local)
+    removed = sorted(local - rem)
+    changed = sorted(
+        n for n in local & rem
+        if _profile_fingerprint(cfg.profiles[n]) != _profile_fingerprint(remote.profiles[n])
+    )
+    click.echo(f"+ add:    {', '.join(added) or '(none)'}")
+    click.echo(f"- remove: {', '.join(removed) or '(none)'}")
+    click.echo(f"~ change: {', '.join(changed) or '(none)'}")
+
+    if dry_run:
+        return
+    if not (added or removed or changed):
+        click.echo("already in sync")
+        return
+    if not yes:
+        click.confirm("Replace local config with the manifest?", default=True, abort=True)
+    save_config(remote)
+    click.echo(f"synced {len(remote.profiles)} profiles from manifest")
 
 
 @main.command("unset")
