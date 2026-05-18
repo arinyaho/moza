@@ -759,3 +759,19 @@ def test_push_command_noop_on_keychain(runner, hat_cfg, mocker):
     assert result.exit_code == 0, result.output
     push.assert_not_called()
     assert "no-op" in result.output.lower()
+
+
+def test_init_yes_auto_imports_manifest_without_prompt(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "-y", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Imported 1 profiles" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert "work" in payload["profiles"]
