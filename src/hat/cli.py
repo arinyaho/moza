@@ -229,7 +229,7 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 @click.option("--compartment-ocid", help="(oci) compartment OCID")
 @click.option("--region", default=None, help="(oci) region (default: ap-chuncheon-1)")
 @click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'hat-')")
-@click.option("--yes", "-y", is_flag=True, help="Overwrite existing config without prompting.")
+@click.option("--yes", "-y", is_flag=True, help="Overwrite existing config and auto-import an existing backend manifest without prompting.")
 @click.option("--no-import", "no_import", is_flag=True,
               help="Skip importing an existing config manifest from the backend.")
 def init_cmd(

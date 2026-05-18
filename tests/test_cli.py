@@ -286,15 +286,15 @@ def test_login_github_pat_and_ssh_compose_across_calls(runner, hat_cfg, mocker, 
     backend = mocker.patch("hat.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    runner.invoke(main, ["login", "cryptolab", "--service", "github"], input="y\nme\ntok\nn\n")
+    runner.invoke(main, ["login", "work2", "--service", "github"], input="y\nme\ntok\nn\n")
     keyfile = tmp_path / "id_test"
     keyfile.write_text("PRIVATE")
     runner.invoke(
         main,
-        ["login", "cryptolab", "--service", "github", "--ssh-key-path", str(keyfile)],
+        ["login", "work2", "--service", "github", "--ssh-key-path", str(keyfile)],
     )
     payload = json.loads(hat_cfg.read_text())
-    gh = payload["profiles"]["cryptolab"]["github"]
+    gh = payload["profiles"]["work2"]["github"]
     assert gh["token_ref"] == "ref://gh"
     assert gh["ssh_key_path"] == str(keyfile)
 
@@ -575,9 +575,9 @@ def _manifest_cfg():
         bootstrap={"gcp_account": "me@x.com"},
         secret_naming=SecretNaming(default="hat-{profile}-{service}-{kind}",
                                    slack_token="hat-{profile}-slack-{workspace}-token"),
-        profiles={"cryptolab": Profile(name="cryptolab",
-                                       github=GitHubService(username="u", host="github.com",
-                                                            token_ref="ref://x"))},
+        profiles={"work": Profile(name="work",
+                                  github=GitHubService(username="u", host="github.com",
+                                                       token_ref="ref://x"))},
     )
 
 
@@ -595,7 +595,7 @@ def test_init_offers_and_imports_manifest(runner, hat_cfg, mocker):
     assert result.exit_code == 0, result.output
     assert "Imported 1 profiles" in result.output
     payload = json.loads(hat_cfg.read_text())
-    assert "cryptolab" in payload["profiles"]
+    assert "work" in payload["profiles"]
 
 
 def test_init_no_import_flag_skips_manifest(runner, hat_cfg, mocker):
@@ -620,3 +620,20 @@ def test_init_keychain_never_pulls_manifest(runner, hat_cfg, mocker):
     result = runner.invoke(main, ["init"], input="3\nhat-\n")
     assert result.exit_code == 0, result.output
     pull.assert_not_called()
+
+
+def test_init_user_declines_manifest_import(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+        input="n\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Next:" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["profiles"] == {}
