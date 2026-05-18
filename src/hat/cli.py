@@ -457,10 +457,21 @@ def _save_and_sync(cfg: Config, backend) -> None:
             )
 
 
-def _reject_reserved_secret_name(name: str) -> None:
-    if name == MANIFEST_SECRET_NAME:
+def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming) -> None:
+    """Reject a profile whose rendered secret names would collide with the
+    reserved config-manifest secret. The default template can't collide, but a
+    custom template might."""
+    candidates = [
+        profile_name,
+        render_name(secret_naming.default, profile=profile_name,
+                    service="probe", kind="probe"),
+        render_name(secret_naming.slack_token, profile=profile_name,
+                    workspace="probe"),
+    ]
+    if MANIFEST_SECRET_NAME in candidates:
         raise click.ClickException(
-            f"secret name {name!r} is reserved for the config manifest; "
+            f"profile {profile_name!r} would collide with the reserved "
+            f"config-manifest secret {MANIFEST_SECRET_NAME!r}; "
             f"rename the profile or adjust secret_naming"
         )
 
@@ -510,7 +521,7 @@ def login_cmd(
     if profile_name not in cfg.profiles:
         click.confirm(f"Profile {profile_name!r} not found. Create it?", default=False, abort=True)
     backend = load_backend(cfg.secrets_backend)
-    _reject_reserved_secret_name(profile_name)
+    _reject_reserved_secret_name(profile_name, cfg.secret_naming)
 
     if service == "github":
         prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)

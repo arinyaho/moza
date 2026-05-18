@@ -552,3 +552,15 @@ def test_logout_pushes_manifest(runner, hat_cfg, mocker):
     result = runner.invoke(main, ["logout", "personal", "--service", "github"])
     assert result.exit_code == 0, result.output
     push.assert_called_once()
+
+
+def test_login_rejects_reserved_manifest_profile_name(runner, hat_cfg, mocker):
+    mocker.patch("hat.cli.load_backend")
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        ["login", "hat-config-manifest", "--service", "github", "--username", "u"],
+        input="y\n",
+    )
+    assert result.exit_code != 0
+    assert "reserved" in result.output.lower()
