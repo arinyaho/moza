@@ -750,6 +750,9 @@ def use_cmd(profile_name: str) -> None:
 
 
 def _profile_fingerprint(prof) -> str:
+    """Stable JSON of a Profile for change detection. sort_keys neutralises
+    dict ordering; assumes all profile fields are JSON-serializable (they are:
+    str/None/bool and lists of dataclasses)."""
     return json.dumps(asdict(prof), sort_keys=True)
 
 
@@ -784,6 +787,11 @@ def sync_cmd(dry_run: bool, yes: bool) -> None:
     if not (added or removed or changed):
         click.echo("already in sync")
         return
+    if removed:
+        click.echo(
+            f"WARNING: these local-only profiles will be DROPPED: {', '.join(removed)}",
+            err=True,
+        )
     if not yes:
         click.confirm("Replace local config with the manifest?", default=True, abort=True)
     save_config(remote)

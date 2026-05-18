@@ -653,7 +653,7 @@ def test_sync_dry_run_reports_diff_and_writes_nothing(runner, hat_cfg, mocker):
     mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(main, ["sync", "--dry-run"])
     assert result.exit_code == 0, result.output
-    assert "work" in result.output
+    assert "+ add:" in result.output and "work" in result.output
     assert hat_cfg.read_text() == before  # unchanged
 
 
@@ -696,3 +696,39 @@ def test_sync_requires_cloud_backend(runner, hat_cfg, mocker):
     result = runner.invoke(main, ["sync"])
     assert result.exit_code != 0
     assert "cloud backend" in result.output.lower()
+
+
+def test_sync_already_in_sync(runner, hat_cfg, mocker):
+    import hat.config as hatcfg
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    # make local config identical to the manifest we'll pull
+    hat_cfg.write_text(hatcfg.serialize_config(_manifest_cfg()))
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync"])
+    assert result.exit_code == 0, result.output
+    assert "already in sync" in result.output
+
+
+def test_sync_user_declines_confirm_aborts(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    before = hat_cfg.read_text()
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync"], input="n\n")
+    assert result.exit_code != 0
+    assert hat_cfg.read_text() == before  # nothing written
