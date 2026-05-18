@@ -71,3 +71,20 @@ Rule of thumb: never type or paste a secret as a CLI argument, and never ask an
 AI agent to run `hat login` for you — its shell can't answer a hidden prompt, so
 the secret would end up in the session transcript. Hand it a `--secret-cmd`
 reference instead.
+
+## Reuse on a second machine
+
+Secrets already live in the cloud backend; the config manifest carries the
+profile map. On the new machine:
+
+```bash
+gcloud auth application-default login --account=<bootstrap-email>
+gcloud auth application-default set-quota-project <sm-project>
+hat init --backend gcp_secret_manager --project <sm-project> \
+  --bootstrap-email <bootstrap-email>
+#   → "Found an existing hat config (N profiles: ...). Import it? [Y/n]"
+eval "$(hat use <profile>)"
+```
+
+`hat init --no-import` skips the prompt. Later, re-pull with `hat sync`
+(`--dry-run` to preview) or force-upload local state with `hat push`.
