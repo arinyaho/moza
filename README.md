@@ -1,6 +1,10 @@
-# hat
+# moza
 
-Multi-identity credential router for Google, GitHub, and Slack — designed for developers juggling multiple accounts (personal + work) across services.
+![License](https://img.shields.io/badge/license-MIT-green)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)
+
+Multi-identity credential router for Google, GitHub, and Slack — designed for developers juggling multiple accounts (personal + work) across services. The CLI binary is `hat`; `moza` is the repo/plugin name (Korean 모자 = hat).
 
 ## What it does
 
