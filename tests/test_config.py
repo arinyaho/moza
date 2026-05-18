@@ -12,8 +12,10 @@ from hat.config import (
     SecretNaming,
     SlackWorkspace,
     config_path,
+    deserialize_config,
     load_config,
     save_config,
+    serialize_config,
 )
 
 
@@ -87,3 +89,46 @@ def test_load_rejects_unknown_schema_version(monkeypatch, tmp_path):
     p.write_text(json.dumps({"$schema_version": 99, "secrets_backend": {"type": "macos_keychain"}, "profiles": {}}))
     with pytest.raises(ValueError, match="schema_version"):
         load_config()
+
+
+def _cfg() -> Config:
+    return Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="gcp_secret_manager", options={"project": "p1"}),
+        bootstrap={"gcp_account": "me@x.com"},
+        secret_naming=SecretNaming(
+            default="hat-{profile}-{service}-{kind}",
+            slack_token="hat-{profile}-slack-{workspace}-token",
+        ),
+        profiles={
+            "work": Profile(
+                name="work",
+                github=GitHubService(username="u", host="github.com", token_ref="ref://gh"),
+            )
+        },
+    )
+
+
+def test_serialize_then_deserialize_roundtrips():
+    cfg = _cfg()
+    restored = deserialize_config(serialize_config(cfg))
+    assert restored.profiles["work"].github.username == "u"
+    assert restored.profiles["work"].github.token_ref == "ref://gh"
+    assert restored.secrets_backend.type == "gcp_secret_manager"
+    assert restored.secrets_backend.options["project"] == "p1"
+    assert restored.bootstrap == {"gcp_account": "me@x.com"}
+
+
+def test_deserialize_accepts_dict_and_str():
+    cfg = _cfg()
+    as_str = serialize_config(cfg)
+    from_str = deserialize_config(as_str)
+    from_dict = deserialize_config(json.loads(as_str))
+    assert from_str.profiles.keys() == from_dict.profiles.keys()
+
+
+def test_deserialize_rejects_bad_schema_version():
+    bad = json.dumps({"$schema_version": 99, "secrets_backend": {"type": "macos_keychain"},
+                       "bootstrap": {}, "secret_naming": {}, "profiles": {}})
+    with pytest.raises(ValueError, match="Unsupported schema_version"):
+        deserialize_config(bad)
