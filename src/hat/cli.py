@@ -230,6 +230,8 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 @click.option("--region", default=None, help="(oci) region (default: ap-chuncheon-1)")
 @click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'hat-')")
 @click.option("--yes", "-y", is_flag=True, help="Overwrite existing config without prompting.")
+@click.option("--no-import", "no_import", is_flag=True,
+              help="Skip importing an existing config manifest from the backend.")
 def init_cmd(
     backend: str | None,
     project: str | None,
@@ -239,6 +241,7 @@ def init_cmd(
     region: str | None,
     service_prefix: str | None,
     yes: bool,
+    no_import: bool,
 ) -> None:
     """Bootstrap wizard. Supply flags for non-interactive setup; missing ones are prompted."""
     if config_path().exists():
@@ -302,6 +305,28 @@ def init_cmd(
 
     if backend_cfg.type == "gcp_secret_manager":
         _set_adc_quota_project(backend_cfg.options["project"])
+
+    if not no_import and is_cloud_backend(backend_cfg):
+        try:
+            remote = pull_manifest(backend)
+        except Exception as exc:
+            remote = None
+            click.echo(f"(manifest check skipped: {exc})", err=True)
+        if remote and remote.profiles:
+            names = ", ".join(remote.profiles)
+            do_import = yes or click.confirm(
+                f"Found an existing hat config in this backend "
+                f"({len(remote.profiles)} profiles: {names}). Import it?",
+                default=True,
+            )
+            if do_import:
+                save_config(remote)
+                first = next(iter(remote.profiles))
+                click.echo(
+                    f'Imported {len(remote.profiles)} profiles. '
+                    f'Try: eval "$(hat use {first})"'
+                )
+                return
 
     click.echo("Next: `hat login <profile> --service google|github|slack`")
 

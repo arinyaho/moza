@@ -564,3 +564,59 @@ def test_login_rejects_reserved_manifest_profile_name(runner, hat_cfg, mocker):
     )
     assert result.exit_code != 0
     assert "reserved" in result.output.lower()
+
+
+def _manifest_cfg():
+    from hat.config import (BackendConfig, Config, GitHubService, Profile,
+                            SecretNaming)
+    return Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="gcp_secret_manager", options={"project": "p1"}),
+        bootstrap={"gcp_account": "me@x.com"},
+        secret_naming=SecretNaming(default="hat-{profile}-{service}-{kind}",
+                                   slack_token="hat-{profile}-slack-{workspace}-token"),
+        profiles={"cryptolab": Profile(name="cryptolab",
+                                       github=GitHubService(username="u", host="github.com",
+                                                            token_ref="ref://x"))},
+    )
+
+
+def test_init_offers_and_imports_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Imported 1 profiles" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert "cryptolab" in payload["profiles"]
+
+
+def test_init_no_import_flag_skips_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["profiles"] == {}
+
+
+def test_init_keychain_never_pulls_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    pull = mocker.patch("hat.cli.pull_manifest")
+    result = runner.invoke(main, ["init"], input="3\nhat-\n")
+    assert result.exit_code == 0, result.output
+    pull.assert_not_called()
