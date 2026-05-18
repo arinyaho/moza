@@ -86,5 +86,13 @@ hat init --backend gcp_secret_manager --project <sm-project> \
 eval "$(hat use <profile>)"
 ```
 
-`hat init --no-import` skips the prompt. Later, re-pull with `hat sync`
-(`--dry-run` to preview) or force-upload local state with `hat push`.
+The commands above are the **GCP Secret Manager** flow; an `oci_vault` backend
+uses the same `hat init` import prompt but a different bootstrap (an OCI API key
+in `~/.oci/config`, no ADC / quota-project step).
+
+`hat init --no-import` skips the import prompt; `hat init --yes` (or any
+non-interactive run) auto-imports without asking — useful for agent-driven
+setup. Later, re-pull with `hat sync` (`--dry-run` to preview) or force-upload
+local state with `hat push`. `hat sync` and `hat push` require a cloud backend
+(`gcp_secret_manager` / `oci_vault`); they are a no-op or error on
+`macos_keychain`.
