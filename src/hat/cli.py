@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import click
@@ -26,6 +27,7 @@ from hat.config import (
     save_config,
 )
 from hat.env import build_env
+from hat.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from hat.oauth import exchange_refresh_token, google_installed_app_flow
 from hat.secret_naming import render_name
 from hat.shell import emit_unset, emit_use
@@ -228,7 +230,9 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 @click.option("--compartment-ocid", help="(oci) compartment OCID")
 @click.option("--region", default=None, help="(oci) region (default: ap-chuncheon-1)")
 @click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'hat-')")
-@click.option("--yes", "-y", is_flag=True, help="Overwrite existing config without prompting.")
+@click.option("--yes", "-y", is_flag=True, help="Overwrite existing config and auto-import an existing backend manifest without prompting.")
+@click.option("--no-import", "no_import", is_flag=True,
+              help="Skip importing an existing config manifest from the backend.")
 def init_cmd(
     backend: str | None,
     project: str | None,
@@ -238,6 +242,7 @@ def init_cmd(
     region: str | None,
     service_prefix: str | None,
     yes: bool,
+    no_import: bool,
 ) -> None:
     """Bootstrap wizard. Supply flags for non-interactive setup; missing ones are prompted."""
     if config_path().exists():
@@ -301,6 +306,28 @@ def init_cmd(
 
     if backend_cfg.type == "gcp_secret_manager":
         _set_adc_quota_project(backend_cfg.options["project"])
+
+    if not no_import and is_cloud_backend(backend_cfg):
+        try:
+            remote = pull_manifest(backend)
+        except Exception as exc:
+            remote = None
+            click.echo(f"(manifest check skipped: {exc})", err=True)
+        if remote and remote.profiles:
+            names = ", ".join(remote.profiles)
+            do_import = yes or click.confirm(
+                f"Found an existing hat config in this backend "
+                f"({len(remote.profiles)} profiles: {names}). Import it?",
+                default=True,
+            )
+            if do_import:
+                save_config(remote)
+                first = next(iter(remote.profiles))
+                click.echo(
+                    f'Imported {len(remote.profiles)} profiles. '
+                    f'Try: eval "$(hat use {first})"'
+                )
+                return
 
     click.echo("Next: `hat login <profile> --service google|github|slack`")
 
@@ -443,6 +470,38 @@ def _require_config() -> Config:
     return cfg
 
 
+def _save_and_sync(cfg: Config, backend) -> None:
+    save_config(cfg)
+    if is_cloud_backend(cfg.secrets_backend):
+        try:
+            push_manifest(cfg, backend)
+        except Exception as exc:
+            click.echo(
+                f"warning: could not sync config manifest ({exc}). "
+                f"Run `hat push` later.",
+                err=True,
+            )
+
+
+def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming) -> None:
+    """Reject a profile whose rendered secret names would collide with the
+    reserved config-manifest secret. The default template can't collide, but a
+    custom template might."""
+    candidates = [
+        profile_name,
+        render_name(secret_naming.default, profile=profile_name,
+                    service="probe", kind="probe"),
+        render_name(secret_naming.slack_token, profile=profile_name,
+                    workspace="probe"),
+    ]
+    if MANIFEST_SECRET_NAME in candidates:
+        raise click.ClickException(
+            f"profile {profile_name!r} would collide with the reserved "
+            f"config-manifest secret {MANIFEST_SECRET_NAME!r}; "
+            f"rename the profile or adjust secret_naming"
+        )
+
+
 @main.command("login")
 @click.argument("profile_name")
 @click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci"]), required=True)
@@ -488,6 +547,7 @@ def login_cmd(
     if profile_name not in cfg.profiles:
         click.confirm(f"Profile {profile_name!r} not found. Create it?", default=False, abort=True)
     backend = load_backend(cfg.secrets_backend)
+    _reject_reserved_secret_name(profile_name, cfg.secret_naming)
 
     if service == "github":
         prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
@@ -549,7 +609,7 @@ def login_cmd(
         if did_something:
             prof.github = gh
             cfg.profiles[profile_name] = prof
-            save_config(cfg)
+            _save_and_sync(cfg, backend)
         return
 
     if service == "slack":
@@ -562,7 +622,7 @@ def login_cmd(
         prof.slack = [w for w in prof.slack if w.workspace != workspace]
         prof.slack.append(SlackWorkspace(workspace=workspace, team_id=None, user_token_ref=ref))
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         click.echo(f"stored slack token for {profile_name}/{workspace} at {ref}")
         return
 
@@ -604,7 +664,7 @@ def login_cmd(
             gcloud_login_required=False,
         )
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         click.echo(f"stored google identity for {profile_name}")
         return
 
@@ -655,7 +715,7 @@ def login_cmd(
                 click.echo(f"stored AWS credentials for {profile_name}")
         prof.aws = aws
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         return
 
     if service == "oci":
@@ -672,7 +732,7 @@ def login_cmd(
                 oci.config_file = str(Path(cf).expanduser())
         prof.oci = oci
         cfg.profiles[profile_name] = prof
-        save_config(cfg)
+        _save_and_sync(cfg, backend)
         click.echo(f"stored OCI identity for {profile_name} (profile={oci.profile!r})")
         return
 
@@ -687,6 +747,69 @@ def use_cmd(profile_name: str) -> None:
     backend = load_backend(cfg.secrets_backend)
     bundle = build_env(prof, backend)
     sys.stdout.write(emit_use(bundle))
+
+
+def _profile_fingerprint(prof) -> str:
+    """Stable JSON of a Profile for change detection. sort_keys neutralises
+    dict ordering; assumes all profile fields are JSON-serializable (they are:
+    str/None/bool and lists of dataclasses)."""
+    return json.dumps(asdict(prof), sort_keys=True)
+
+
+@main.command("sync")
+@click.option("--dry-run", "dry_run", is_flag=True, help="Show what would change; write nothing.")
+@click.option("--yes", "-y", is_flag=True, help="Apply without confirmation.")
+def sync_cmd(dry_run: bool, yes: bool) -> None:
+    """Pull the config manifest from the backend and reconcile local config."""
+    cfg = _require_config()
+    if not is_cloud_backend(cfg.secrets_backend):
+        raise click.ClickException(
+            "sync requires a cloud backend (gcp_secret_manager / oci_vault)"
+        )
+    backend = load_backend(cfg.secrets_backend)
+    remote = pull_manifest(backend)
+    if remote is None:
+        raise click.ClickException("no manifest found in backend (nothing to sync)")
+
+    local, rem = set(cfg.profiles), set(remote.profiles)
+    added = sorted(rem - local)
+    removed = sorted(local - rem)
+    changed = sorted(
+        n for n in local & rem
+        if _profile_fingerprint(cfg.profiles[n]) != _profile_fingerprint(remote.profiles[n])
+    )
+    click.echo(f"+ add:    {', '.join(added) or '(none)'}")
+    click.echo(f"- remove: {', '.join(removed) or '(none)'}")
+    click.echo(f"~ change: {', '.join(changed) or '(none)'}")
+
+    if dry_run:
+        return
+    if not (added or removed or changed):
+        click.echo("already in sync")
+        return
+    if removed:
+        click.echo(
+            f"WARNING: these local-only profiles will be DROPPED: {', '.join(removed)}",
+            err=True,
+        )
+    if not yes:
+        click.confirm("Replace local config with the manifest?", default=True, abort=True)
+    save_config(remote)
+    click.echo(f"synced {len(remote.profiles)} profiles from manifest")
+
+
+@main.command("push")
+def push_cmd() -> None:
+    """Force-push the current local config to the backend manifest."""
+    cfg = _require_config()
+    if not is_cloud_backend(cfg.secrets_backend):
+        # Intentionally exit 0 (not an error like sync): pushing a manifest to a
+        # local-only backend is simply meaningless, not a user mistake.
+        click.echo("push is a no-op for local backends (macos_keychain)")
+        return
+    backend = load_backend(cfg.secrets_backend)
+    push_manifest(cfg, backend)
+    click.echo("pushed config manifest to backend")
 
 
 @main.command("unset")
@@ -773,7 +896,7 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
         prof.aws = None
     elif service == "oci":
         prof.oci = None
-    save_config(cfg)
+    _save_and_sync(cfg, backend)
     click.echo(f"removed {service} from {profile_name}")
 
 

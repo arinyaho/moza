@@ -286,15 +286,15 @@ def test_login_github_pat_and_ssh_compose_across_calls(runner, hat_cfg, mocker, 
     backend = mocker.patch("hat.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    runner.invoke(main, ["login", "cryptolab", "--service", "github"], input="y\nme\ntok\nn\n")
+    runner.invoke(main, ["login", "work2", "--service", "github"], input="y\nme\ntok\nn\n")
     keyfile = tmp_path / "id_test"
     keyfile.write_text("PRIVATE")
     runner.invoke(
         main,
-        ["login", "cryptolab", "--service", "github", "--ssh-key-path", str(keyfile)],
+        ["login", "work2", "--service", "github", "--ssh-key-path", str(keyfile)],
     )
     payload = json.loads(hat_cfg.read_text())
-    gh = payload["profiles"]["cryptolab"]["github"]
+    gh = payload["profiles"]["work2"]["github"]
     assert gh["token_ref"] == "ref://gh"
     assert gh["ssh_key_path"] == str(keyfile)
 
@@ -481,3 +481,297 @@ def test_login_google_skips_hint_when_client_id_provided(runner, hat_cfg, mocker
     )
     assert result.exit_code == 0, result.output
     assert "OAuth Desktop client" not in result.output
+
+
+def test_login_github_pushes_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh-token"
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    push = mocker.patch("hat.cli.push_manifest")
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input="y\nmyuser\nghp_token123\nn\n",
+    )
+    assert result.exit_code == 0, result.output
+    push.assert_called_once()
+
+
+def test_login_manifest_push_failure_is_nonfatal(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh-token"
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("hat.cli.push_manifest", side_effect=RuntimeError("network down"))
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input="y\nmyuser\nghp_token123\nn\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "could not sync config manifest" in result.output
+    assert "network down" in result.output
+
+
+def test_login_keychain_does_not_push_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh-token"
+    push = mocker.patch("hat.cli.push_manifest")
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "github"],
+        input="y\nmyuser\nghp_token123\nn\n",
+    )
+    assert result.exit_code == 0, result.output
+    push.assert_not_called()
+
+
+def test_logout_pushes_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    push = mocker.patch("hat.cli.push_manifest")
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    runner.invoke(main, ["login", "personal", "--service", "github"],
+                  input="y\nme\ntok\nn\n")
+    push.reset_mock()
+    result = runner.invoke(main, ["logout", "personal", "--service", "github"])
+    assert result.exit_code == 0, result.output
+    push.assert_called_once()
+
+
+def test_login_rejects_reserved_manifest_profile_name(runner, hat_cfg, mocker):
+    mocker.patch("hat.cli.load_backend")
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        ["login", "hat-config-manifest", "--service", "github", "--username", "u"],
+        input="y\n",
+    )
+    assert result.exit_code != 0
+    assert "reserved" in result.output.lower()
+
+
+def _manifest_cfg():
+    from hat.config import (BackendConfig, Config, GitHubService, Profile,
+                            SecretNaming)
+    return Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="gcp_secret_manager", options={"project": "p1"}),
+        bootstrap={"gcp_account": "me@x.com"},
+        secret_naming=SecretNaming(default="hat-{profile}-{service}-{kind}",
+                                   slack_token="hat-{profile}-slack-{workspace}-token"),
+        profiles={"work": Profile(name="work",
+                                  github=GitHubService(username="u", host="github.com",
+                                                       token_ref="ref://x"))},
+    )
+
+
+def test_init_offers_and_imports_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Imported 1 profiles" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert "work" in payload["profiles"]
+
+
+def test_init_no_import_flag_skips_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["profiles"] == {}
+
+
+def test_init_keychain_never_pulls_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    pull = mocker.patch("hat.cli.pull_manifest")
+    result = runner.invoke(main, ["init"], input="3\nhat-\n")
+    assert result.exit_code == 0, result.output
+    pull.assert_not_called()
+
+
+def test_init_user_declines_manifest_import(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+        input="n\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Next:" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["profiles"] == {}
+
+
+def test_sync_dry_run_reports_diff_and_writes_nothing(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    before = hat_cfg.read_text()
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "+ add:" in result.output and "work" in result.output
+    assert hat_cfg.read_text() == before  # unchanged
+
+
+def test_sync_applies_with_yes(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync", "-y"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert "work" in payload["profiles"]
+
+
+def test_sync_no_manifest_errors(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    result = runner.invoke(main, ["sync"])
+    assert result.exit_code != 0
+    assert "no manifest" in result.output.lower()
+
+
+def test_sync_requires_cloud_backend(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(main, ["sync"])
+    assert result.exit_code != 0
+    assert "cloud backend" in result.output.lower()
+
+
+def test_sync_already_in_sync(runner, hat_cfg, mocker):
+    import hat.config as hatcfg
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    # make local config identical to the manifest we'll pull
+    hat_cfg.write_text(hatcfg.serialize_config(_manifest_cfg()))
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync"])
+    assert result.exit_code == 0, result.output
+    assert "already in sync" in result.output
+
+
+def test_sync_user_declines_confirm_aborts(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    before = hat_cfg.read_text()
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(main, ["sync"], input="n\n")
+    assert result.exit_code != 0
+    assert hat_cfg.read_text() == before  # nothing written
+
+
+def test_push_command_pushes_manifest(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    runner.invoke(
+        main,
+        ["init", "--backend", "gcp_secret_manager", "--no-import",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    push = mocker.patch("hat.cli.push_manifest")
+    result = runner.invoke(main, ["push"])
+    assert result.exit_code == 0, result.output
+    push.assert_called_once()
+    assert "pushed config manifest" in result.output
+
+
+def test_push_command_noop_on_keychain(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    push = mocker.patch("hat.cli.push_manifest")
+    result = runner.invoke(main, ["push"])
+    assert result.exit_code == 0, result.output
+    push.assert_not_called()
+    assert "no-op" in result.output.lower()
+
+
+def test_init_yes_auto_imports_manifest_without_prompt(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.health_check.return_value = None
+    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    result = runner.invoke(
+        main,
+        ["init", "-y", "--backend", "gcp_secret_manager",
+         "--project", "p1", "--bootstrap-email", "me@x.com"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Imported 1 profiles" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    assert "work" in payload["profiles"]

@@ -89,22 +89,35 @@ def config_path() -> Path:
     return home / ".config" / "hat" / "config.json"
 
 
+def serialize_config(cfg: Config) -> str:
+    return json.dumps(_config_to_dict(cfg), indent=2, sort_keys=False)
+
+
+def deserialize_config(raw: str | dict) -> Config:
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid config JSON: {exc}") from exc
+    else:
+        data = raw
+    version = data.get("$schema_version", data.get("schema_version"))
+    if version != SCHEMA_VERSION:
+        raise ValueError(f"Unsupported schema_version {version!r}; expected {SCHEMA_VERSION}")
+    return _config_from_dict(data)
+
+
 def load_config() -> Config | None:
     path = config_path()
     if not path.exists():
         return None
-    raw = json.loads(path.read_text())
-    version = raw.get("$schema_version", raw.get("schema_version"))
-    if version != SCHEMA_VERSION:
-        raise ValueError(f"Unsupported schema_version {version!r}; expected {SCHEMA_VERSION}")
-    return _config_from_dict(raw)
+    return deserialize_config(path.read_text())
 
 
 def save_config(cfg: Config) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = _config_to_dict(cfg)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=False))
+    path.write_text(serialize_config(cfg))
     path.chmod(0o600)
 
 

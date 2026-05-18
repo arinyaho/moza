@@ -47,3 +47,11 @@ All three are optional per profile.
 ```jsonc
 [{ "workspace": "team-a", "team_id": null, "user_token_ref": "<backend-ref>" }]
 ```
+
+## Reserved backend secret name
+
+`hat-config-manifest` is reserved: `hat` stores a non-secret snapshot of
+`config.json` (refs and identifiers only — no secret values) under this name in
+cloud backends (`gcp_secret_manager`, `oci_vault`). It is pushed automatically
+after every `hat login` / `hat logout`. Do not create a profile whose rendered
+secret name collides with it.
