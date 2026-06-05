@@ -6,6 +6,7 @@ import pytest
 
 from hat.config import (
     AWSService,
+    AtlassianService,
     GitHubService,
     GoogleService,
     OCIService,
@@ -188,3 +189,31 @@ def test_oci_sets_profile_env(monkeypatch, tmp_path, fake_backend):
     bundle = build_env(prof, fake_backend, pid=700)
     assert bundle.env["OCI_CLI_PROFILE"] == "WORK"
     assert bundle.env["OCI_CLI_CONFIG_FILE"] == "/home/u/.oci/work.ini"
+
+
+def test_atlassian_sets_env(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    fake_backend.get.side_effect = lambda ref: {
+        **{
+            "refresh-ref": b"refresh-tok",
+            "csec-ref": b"client-secret-val",
+            "gh-token-ref": b"ghp_xxx",
+            "slack-team-a-ref": b"xoxp-aaa",
+            "slack-team-b-ref": b"xoxp-bbb",
+            "aws-key-ref": b"AKIAIOSFODNN7EXAMPLE",
+            "aws-secret-ref": b"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        },
+        "atl-token-ref": b"atl-api-token-xyz",
+    }[ref]
+    prof = Profile(
+        name="work",
+        atlassian=AtlassianService(
+            email="me@company.com",
+            base_url="https://company.atlassian.net",
+            api_token_ref="atl-token-ref",
+        ),
+    )
+    bundle = build_env(prof, fake_backend, pid=800)
+    assert bundle.env["ATLASSIAN_EMAIL"] == "me@company.com"
+    assert bundle.env["ATLASSIAN_API_TOKEN"] == "atl-api-token-xyz"
+    assert bundle.env["ATLASSIAN_BASE_URL"] == "https://company.atlassian.net"

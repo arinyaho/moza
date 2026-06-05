@@ -882,3 +882,26 @@ def test_logout_atlassian_removes_service(runner, hat_cfg, mocker):
     backend.delete.assert_called_with("ref://atl-token")
     payload = json.loads(hat_cfg.read_text())
     assert payload["profiles"]["personal"]["atlassian"] is None
+
+
+def test_token_atlassian_prints_api_token(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://atl-token"
+    backend.get.return_value = b"my-secret-api-token"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    runner.invoke(
+        main,
+        [
+            "login", "personal", "--service", "atlassian",
+            "--atlassian-email", "me@company.com",
+            "--base-url", "https://company.atlassian.net",
+            "--token-stdin",
+        ],
+        input="y\nmy-secret-api-token\n",
+    )
+    result = runner.invoke(
+        main, ["token", "atlassian"],
+        env={"HAT_PROFILE": "personal", "HAT_CONFIG": str(hat_cfg)},
+    )
+    assert result.exit_code == 0, result.output
+    assert "my-secret-api-token" in result.output
