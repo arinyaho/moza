@@ -82,6 +82,7 @@ If the profile has only one workspace, `$HAT_SLACK_DEFAULT_TOKEN` is also export
 ## Important rules
 
 - **Never paste resolved tokens into the conversation.** Use shell expansion (`$GH_TOKEN`, `$(hat token google)`) so the token resolves at execution time and never appears in tool-call arguments.
+- **Always activate a profile via `eval "$(hat use <profile>)"` or the `hat-use` wrapper — never run `hat use` bare.** As an extra safety net `hat use` writes exports to a 0600 ephemeral file and only prints a `source …; rm …` one-liner, so a missed `eval` no longer leaks tokens to stdout. On a real TTY `hat use` refuses outright (use `hat-use` or `eval`).
 - **Never run `hat login` yourself to enter a secret.** The agent's shell is non-interactive, so you would have to put the secret in the command — which lands in the session transcript and shell history. Instead:
   - Tell the user to run the `hat login <profile> --service ...` command **themselves** in their own terminal (the hidden `getpass` prompt keeps it out of argv/history), **or**
   - Use a credential reference, not the value: `hat login <profile> --service <svc> --secret-cmd 'op read op://Vault/item/field'` (also works with `gcloud secrets versions access`, `security find-generic-password`, etc.). The `op://…` reference is safe to appear in history; the secret never does.

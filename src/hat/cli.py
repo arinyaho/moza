@@ -737,9 +737,29 @@ def login_cmd(
         return
 
 
+def _stdout_is_tty() -> bool:
+    """Indirection so tests can flip the heuristic without monkey-patching
+    sys.stdout (which Click's CliRunner replaces during invoke)."""
+    return sys.stdout.isatty()
+
+
 @main.command("use")
 @click.argument("profile_name")
-def use_cmd(profile_name: str) -> None:
+@click.option("--print", "force_print", is_flag=True,
+              help="Force emitting the loader to stdout even if stdout is a TTY. "
+                   "Use only when you understand the snippet sources an env file "
+                   "and won't paste the path anywhere it shouldn't go.")
+def use_cmd(profile_name: str, force_print: bool) -> None:
+    if _stdout_is_tty() and not force_print:
+        raise click.ClickException(
+            "stdout is a TTY — refusing to emit the env loader.\n"
+            "`hat use` is meant to be eval'd, not run interactively.\n\n"
+            "Use the wrapper (recommended):\n"
+            f"  hat-use {profile_name}\n\n"
+            "Or eval directly:\n"
+            f'  eval "$(hat use {profile_name})"\n\n'
+            "If you really need raw output, pass --print."
+        )
     cfg = _require_config()
     prof = cfg.profiles.get(profile_name)
     if not prof:

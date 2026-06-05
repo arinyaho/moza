@@ -3,7 +3,10 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import time
 from pathlib import Path
+
+ENV_SCRIPT_MAX_AGE_SEC = 300
 
 
 class EphemeralStore:
@@ -36,11 +39,23 @@ class EphemeralStore:
         root = tmpdir / "hat"
         if not root.exists():
             return
-        pat = re.compile(r"^(\d+)-")
+        pid_pat = re.compile(r"^(\d+)-")
+        env_pat = re.compile(r"^env-[0-9a-f]+\.sh$")
+        now = time.time()
         for p in root.iterdir():
             if not p.is_file():
                 continue
-            m = pat.match(p.name)
+            if env_pat.match(p.name):
+                # Orphaned env loader from a `hat use` whose eval never ran.
+                # Sweep when the file is old enough that no legitimate eval
+                # could still be pending.
+                try:
+                    if now - p.stat().st_mtime > ENV_SCRIPT_MAX_AGE_SEC:
+                        p.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            m = pid_pat.match(p.name)
             if not m:
                 continue
             pid = int(m.group(1))

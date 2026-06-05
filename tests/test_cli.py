@@ -129,7 +129,8 @@ def test_login_google_runs_oauth_and_stores(runner, hat_cfg, mocker):
     assert g["gcloud_config_name"] == "personal"
 
 
-def test_use_emits_exports(runner, hat_cfg, mocker):
+def test_use_routes_secrets_through_ephemeral_file(runner, hat_cfg, mocker, tmp_path, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
     runner.invoke(main, ["init"], input="3\nhat-\n")
     backend = mocker.patch("hat.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
@@ -137,9 +138,52 @@ def test_use_emits_exports(runner, hat_cfg, mocker):
 
     backend.get.return_value = b"ghp_xxx"
     result = runner.invoke(main, ["use", "personal"])
-    assert result.exit_code == 0
-    assert "export HAT_PROFILE='personal'" in result.output
-    assert "export GH_TOKEN='ghp_xxx'" in result.output
+    assert result.exit_code == 0, result.output
+
+    # Token must never appear on stdout: that was the original leak vector
+    # (caller forgets `eval`, stdout lands in transcript / shell history / ps).
+    assert "ghp_xxx" not in result.output
+
+    # Output is a one-liner that sources a path under TMPDIR/hat and rm's it.
+    import re
+    m = re.match(r"\. '([^']+)' && rm -f '\1'", result.output.strip())
+    assert m, result.output
+    script = Path(m.group(1))
+    body = script.read_text()
+    assert "export HAT_PROFILE='personal'" in body
+    assert "export GH_TOKEN='ghp_xxx'" in body
+
+
+def test_use_refuses_when_stdout_is_a_tty(runner, hat_cfg, mocker, monkeypatch):
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\nghp_xxx\nn\n")
+
+    # Force the TTY heuristic on Click's StringIO so we can test the guard.
+    mocker.patch("hat.cli._stdout_is_tty", return_value=True)
+    result = runner.invoke(main, ["use", "personal"])
+
+    # Must exit non-zero with a hint at the wrapper / eval form. Crucially,
+    # the secret must NOT have been resolved or printed.
+    assert result.exit_code != 0
+    assert "ghp_xxx" not in result.output
+    assert "eval" in result.output or "hat-use" in result.output
+
+
+def test_use_print_flag_overrides_tty_guard(runner, hat_cfg, mocker, tmp_path, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://gh"
+    runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\nghp_xxx\nn\n")
+
+    backend.get.return_value = b"ghp_xxx"
+    mocker.patch("hat.cli._stdout_is_tty", return_value=True)
+    result = runner.invoke(main, ["use", "personal", "--print"])
+    assert result.exit_code == 0, result.output
+    # Even with --print, stdout carries the loader (not the raw token).
+    assert "ghp_xxx" not in result.output
 
 
 def test_unset_emits_unsets(runner, hat_cfg):
