@@ -14,6 +14,7 @@ from hat.backends import load_backend
 from hat.ephemeral import EphemeralStore
 from hat.config import (
     AWSService,
+    AtlassianService,
     BackendConfig,
     Config,
     GitHubService,
@@ -416,6 +417,8 @@ def list_cmd() -> None:
             services.append(f"aws({','.join(parts) if parts else 'keys'})")
         if prof.oci:
             services.append(f"oci:{prof.oci.profile or 'DEFAULT'}")
+        if prof.atlassian:
+            services.append(f"atlassian:{prof.atlassian.email}")
         click.echo(f"{name}\t{' '.join(services) or '(empty)'}")
 
 
@@ -437,9 +440,12 @@ def status_cmd() -> None:
         "AWS_ACCESS_KEY_ID",
         "OCI_CLI_PROFILE",
         "OCI_CLI_CONFIG_FILE",
+        "ATLASSIAN_EMAIL",
+        "ATLASSIAN_BASE_URL",
+        "ATLASSIAN_API_TOKEN",
     ):
         if v := os.environ.get(var):
-            shown = v if var not in ("GH_TOKEN", "AWS_ACCESS_KEY_ID") else "<set>"
+            shown = v if var not in ("GH_TOKEN", "AWS_ACCESS_KEY_ID", "ATLASSIAN_API_TOKEN") else "<set>"
             click.echo(f"  {var}={shown}")
 
 
@@ -460,6 +466,7 @@ def whoami_cmd(profile: str | None) -> None:
         "slack": [w.workspace for w in prof.slack],
         "aws": {"profile": prof.aws.profile, "region": prof.aws.region} if prof.aws else None,
         "oci": {"profile": prof.oci.profile} if prof.oci else None,
+        "atlassian": {"email": prof.atlassian.email, "base_url": prof.atlassian.base_url} if prof.atlassian else None,
     }, indent=2))
 
 
@@ -504,7 +511,7 @@ def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming)
 
 @main.command("login")
 @click.argument("profile_name")
-@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci"]), required=True)
+@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci", "atlassian"]), required=True)
 @click.option("--workspace", help="Slack workspace label (required for --service slack)")
 @click.option("--email", help="(google) account email")
 @click.option("--username", help="(github) username")
@@ -512,7 +519,7 @@ def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming)
 @click.option("--ssh-key-path", "ssh_key_path", help="(github) register SSH key by path (per-device)")
 @click.option("--ssh-key", "ssh_key", help="(github) read SSH key file and store contents in the secrets backend")
 @click.option("--token-stdin", "token_stdin", is_flag=True,
-              help="(github/slack/aws) read the secret from stdin instead of prompting")
+              help="(github/slack/aws/atlassian) read the secret from stdin instead of prompting")
 @click.option("--secret-cmd", "secret_cmd",
               help="Run this command and use its stdout as the secret "
                    "(e.g. 'op read op://Private/item/field'). Keeps the secret out of argv/history.")
@@ -524,6 +531,8 @@ def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming)
 @click.option("--oci-profile", "oci_profile", help="(oci) existing ~/.oci/config profile name")
 @click.option("--config-file", "config_file", help="(oci) path to OCI config file (default: ~/.oci/config)")
 @click.option("--region", "region", help="(aws) default region")
+@click.option("--atlassian-email", "atlassian_email", help="(atlassian) account email")
+@click.option("--base-url", "base_url", help="(atlassian) base URL (e.g. https://yourco.atlassian.net)")
 def login_cmd(
     profile_name: str,
     service: str,
@@ -542,6 +551,8 @@ def login_cmd(
     oci_profile: str | None,
     config_file: str | None,
     region: str | None,
+    atlassian_email: str | None,
+    base_url: str | None,
 ) -> None:
     cfg = _require_config()
     if profile_name not in cfg.profiles:
@@ -736,6 +747,21 @@ def login_cmd(
         click.echo(f"stored OCI identity for {profile_name} (profile={oci.profile!r})")
         return
 
+    if service == "atlassian":
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        email_val = atlassian_email or (prof.atlassian.email if prof.atlassian else None) or click.prompt("Atlassian account email")
+        url = base_url or (prof.atlassian.base_url if prof.atlassian else None) or click.prompt("Atlassian base URL (e.g. https://yourco.atlassian.net)")
+        token = _read_secret("Atlassian API token", secret_cmd=secret_cmd, from_stdin=token_stdin)
+        ref = backend.put(
+            render_name(cfg.secret_naming.default, profile=profile_name, service="atlassian", kind="api_token"),
+            token.encode("utf-8"),
+        )
+        prof.atlassian = AtlassianService(email=email_val, base_url=url.rstrip("/"), api_token_ref=ref)
+        cfg.profiles[profile_name] = prof
+        _save_and_sync(cfg, backend)
+        click.echo(f"stored atlassian identity for {profile_name} at {ref}")
+        return
+
 
 def _stdout_is_tty() -> bool:
     """Indirection so tests can flip the heuristic without monkey-patching
@@ -853,30 +879,38 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
 
 
 @main.command("token")
-@click.argument("service", type=click.Choice(["google"]))
+@click.argument("service", type=click.Choice(["google", "atlassian"]))
 def token_cmd(service: str) -> None:
     cfg = _require_config()
     name = os.environ.get("HAT_PROFILE")
     if not name:
         raise click.ClickException("HAT_PROFILE not set; run `eval \"$(hat use <profile>)\"` first")
     prof = cfg.profiles.get(name)
-    if not prof or not prof.google:
-        raise click.ClickException(f"profile {name!r} has no google identity")
+    if not prof:
+        raise click.ClickException(f"profile {name!r} not found")
     backend = load_backend(cfg.secrets_backend)
-    g = prof.google
-    client_secret = backend.get(g.oauth_client_secret_ref).decode("utf-8")
-    refresh = backend.get(g.refresh_token_ref).decode("utf-8")
-    access = exchange_refresh_token(
-        client_id=g.oauth_client_id,
-        client_secret=client_secret,
-        refresh_token=refresh,
-    )
-    click.echo(access)
+    if service == "google":
+        if not prof.google:
+            raise click.ClickException(f"profile {name!r} has no google identity")
+        g = prof.google
+        client_secret = backend.get(g.oauth_client_secret_ref).decode("utf-8")
+        refresh = backend.get(g.refresh_token_ref).decode("utf-8")
+        access = exchange_refresh_token(
+            client_id=g.oauth_client_id,
+            client_secret=client_secret,
+            refresh_token=refresh,
+        )
+        click.echo(access)
+    elif service == "atlassian":
+        if not prof.atlassian:
+            raise click.ClickException(f"profile {name!r} has no atlassian identity")
+        token = backend.get(prof.atlassian.api_token_ref).decode("utf-8").strip()
+        click.echo(token)
 
 
 @main.command("logout")
 @click.argument("profile_name")
-@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci"]), required=True)
+@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci", "atlassian"]), required=True)
 @click.option("--workspace", help="Slack workspace label (required for --service slack)")
 def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
     cfg = _require_config()
@@ -916,6 +950,9 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
         prof.aws = None
     elif service == "oci":
         prof.oci = None
+    elif service == "atlassian" and prof.atlassian:
+        backend.delete(prof.atlassian.api_token_ref)
+        prof.atlassian = None
     _save_and_sync(cfg, backend)
     click.echo(f"removed {service} from {profile_name}")
 

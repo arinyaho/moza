@@ -63,6 +63,13 @@ class OCIService:
 
 
 @dataclass
+class AtlassianService:
+    email: str
+    base_url: str
+    api_token_ref: str
+
+
+@dataclass
 class Profile:
     name: str
     google: GoogleService | None = None
@@ -70,6 +77,7 @@ class Profile:
     slack: list[SlackWorkspace] = field(default_factory=list)
     aws: AWSService | None = None
     oci: OCIService | None = None
+    atlassian: AtlassianService | None = None
 
 
 @dataclass
@@ -130,6 +138,7 @@ def _config_to_dict(cfg: Config) -> dict:
             "slack": [asdict(w) for w in prof.slack],
             "aws": asdict(prof.aws) if prof.aws else None,
             "oci": asdict(prof.oci) if prof.oci else None,
+            "atlassian": asdict(prof.atlassian) if prof.atlassian else None,
         }
     return {
         "$schema_version": cfg.schema_version,
@@ -158,7 +167,8 @@ def _config_from_dict(raw: dict) -> Config:
         slack = [SlackWorkspace(**w) for w in (p.get("slack") or [])]
         aws = AWSService(**p["aws"]) if p.get("aws") else None
         oci = OCIService(**p["oci"]) if p.get("oci") else None
-        profiles[name] = Profile(name=name, google=google, github=github, slack=slack, aws=aws, oci=oci)
+        atlassian = AtlassianService(**p["atlassian"]) if p.get("atlassian") else None
+        profiles[name] = Profile(name=name, google=google, github=github, slack=slack, aws=aws, oci=oci, atlassian=atlassian)
 
     return Config(
         schema_version=SCHEMA_VERSION,
