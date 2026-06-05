@@ -819,3 +819,66 @@ def test_init_yes_auto_imports_manifest_without_prompt(runner, hat_cfg, mocker):
     assert "Imported 1 profiles" in result.output
     payload = json.loads(hat_cfg.read_text())
     assert "work" in payload["profiles"]
+
+
+def test_login_atlassian_stores_token_and_updates_config(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://atl-token"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    result = runner.invoke(
+        main,
+        [
+            "login", "personal", "--service", "atlassian",
+            "--atlassian-email", "me@company.com",
+            "--base-url", "https://company.atlassian.net",
+            "--token-stdin",
+        ],
+        input="y\nmy-api-token\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "stored atlassian identity" in result.output
+    payload = json.loads(hat_cfg.read_text())
+    atl = payload["profiles"]["personal"]["atlassian"]
+    assert atl["email"] == "me@company.com"
+    assert atl["base_url"] == "https://company.atlassian.net"
+    assert atl["api_token_ref"] == "ref://atl-token"
+
+
+def test_list_shows_atlassian(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://atl-token"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    runner.invoke(
+        main,
+        [
+            "login", "personal", "--service", "atlassian",
+            "--atlassian-email", "me@company.com",
+            "--base-url", "https://company.atlassian.net",
+            "--token-stdin",
+        ],
+        input="y\nmy-api-token\n",
+    )
+    result = runner.invoke(main, ["list"])
+    assert result.exit_code == 0, result.output
+    assert "atlassian:me@company.com" in result.output
+
+
+def test_logout_atlassian_removes_service(runner, hat_cfg, mocker):
+    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend.put.return_value = "ref://atl-token"
+    runner.invoke(main, ["init"], input="3\nhat-\n")
+    runner.invoke(
+        main,
+        [
+            "login", "personal", "--service", "atlassian",
+            "--atlassian-email", "me@company.com",
+            "--base-url", "https://company.atlassian.net",
+            "--token-stdin",
+        ],
+        input="y\nmy-api-token\n",
+    )
+    result = runner.invoke(main, ["logout", "personal", "--service", "atlassian"])
+    assert result.exit_code == 0, result.output
+    backend.delete.assert_called_with("ref://atl-token")
+    payload = json.loads(hat_cfg.read_text())
+    assert payload["profiles"]["personal"]["atlassian"] is None

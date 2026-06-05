@@ -98,4 +98,11 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
         if oci.config_file:
             bundle.env["OCI_CLI_CONFIG_FILE"] = oci.config_file
 
+    if profile.atlassian:
+        atl = profile.atlassian
+        token = backend.get(atl.api_token_ref).decode("utf-8").strip()
+        bundle.env["ATLASSIAN_EMAIL"] = atl.email
+        bundle.env["ATLASSIAN_API_TOKEN"] = token
+        bundle.env["ATLASSIAN_BASE_URL"] = atl.base_url
+
     return bundle
