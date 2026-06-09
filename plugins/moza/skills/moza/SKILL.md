@@ -1,6 +1,6 @@
 ---
 name: hat
-description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, or Atlassian — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, and `curl` calls without polluting other Claude sessions.
+description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, or Atlassian — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, and `curl` calls without polluting other agent sessions.
 version: 0.1.0
 author: arinyaho
 license: MIT
@@ -20,7 +20,7 @@ The user maintains multiple identities, each bundling a Google account (Gmail/Ca
 Trigger any time:
 - The user names a profile (`personal`, `work-foo`, etc.) and asks for an action that needs auth.
 - The user asks "as <email>" / "from <email>" / "with my <something> account".
-- A multi-account task (one profile per Claude session) — `hat` is what isolates them.
+- A multi-account task (one profile per agent session) — `hat` is what isolates them.
 - The user wants to call Atlassian APIs (Jira, Confluence) under a specific identity.
 
 If the user has not configured `hat`, **don't just punt** — drive the conversational setup flow described in `references/setup-flow.md`. Detect state with `hat doctor` (or `hat list` if doctor fails), then guide the user step by step.
@@ -100,7 +100,7 @@ curl -s -u "$EMAIL:$TOKEN" \
   - Use a credential reference, not the value: `hat login <profile> --service <svc> --secret-cmd 'op read op://Vault/item/field'` (also works with `gcloud secrets versions access`, `security find-generic-password`, etc.). The `op://…` reference is safe to appear in history; the secret never does.
   - For Google, a pre-existing refresh token can be piped: `… --refresh-token-stdin < tokenfile` with the client secret via `--secret-cmd`.
 - **Don't switch the active profile in this shell** if the user is asking for a one-off in another identity — use `hat exec <other> -- <cmd>` so the parent shell stays clean.
-- **Don't call the claude.ai-hosted Gmail/Calendar/Drive/Slack MCP servers** when `hat` is configured — they are single-account and bypass the user's vault.
+- **Don't use the agent's native Google/Slack/Atlassian connectors** when `hat` is configured — they are single-account and bypass the user's vault.
 
 ## References
 
