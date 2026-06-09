@@ -1,7 +1,7 @@
 ---
 name: hat
 description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, or Atlassian — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, and `curl` calls without polluting other agent sessions.
-version: 0.1.0
+version: 0.2.0
 author: arinyaho
 license: MIT
 compatibility: works best with `hat` on PATH; falls back to source if available
