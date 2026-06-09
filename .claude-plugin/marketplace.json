@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "arinyaho",
-  "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
+  "description": "Multi-identity credential router for Google, GitHub, Slack, Atlassian, AWS, and OCI — activate the right account in this shell without polluting global state.",
   "owner": {
     "name": "arinyaho",
     "url": "https://github.com/arinyaho"
@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "moza",
-      "description": "Multi-identity credential router for Google, GitHub, and Slack — activate the right account in this shell without polluting global state.",
+      "description": "Multi-identity credential router for Google, GitHub, Slack, Atlassian, AWS, and OCI — activate the right account in this shell without polluting global state.",
       "author": {
         "name": "arinyaho"
       },
@@ -19,7 +19,7 @@
         "url": "https://github.com/arinyaho/moza",
         "path": "plugins/moza",
         "ref": "main",
-        "sha": "6f572ae2aeb9f80ba9e90ee68015a215b6a63f40"
+        "sha": "370b9bdeab679a4b12ed8c8bef1a25d946828d2b"
       },
       "homepage": "https://github.com/arinyaho/moza"
     }
