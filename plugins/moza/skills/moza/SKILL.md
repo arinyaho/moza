@@ -1,19 +1,19 @@
 ---
 name: hat
-description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, or Atlassian — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, and `curl` calls without polluting other agent sessions.
+description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, Atlassian, AWS, or OCI — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, `aws`, `oci`, and `curl` calls without polluting other agent sessions.
 version: 0.2.0
 author: arinyaho
 license: MIT
 compatibility: works best with `hat` on PATH; falls back to source if available
 metadata:
   hermes:
-    tags: [identity, credentials, multi-account, gcp, github, slack, atlassian]
+    tags: [identity, credentials, multi-account, gcp, github, slack, atlassian, aws, oci]
     related_skills: []
 ---
 
 # hat — Multi-identity credential router
 
-The user maintains multiple identities, each bundling a Google account (Gmail/Calendar/Drive + GCP) and optionally a GitHub account, one or more Slack workspaces, and/or an Atlassian account (Jira/Confluence). Use `hat` to activate the right identity in this shell session.
+The user maintains multiple identities, each bundling a Google account (Gmail/Calendar/Drive + GCP) and optionally a GitHub account, one or more Slack workspaces, an Atlassian account (Jira/Confluence), AWS credentials, and/or an OCI profile. Use `hat` to activate the right identity in this shell session.
 
 ## When to use
 
@@ -22,6 +22,8 @@ Trigger any time:
 - The user asks "as <email>" / "from <email>" / "with my <something> account".
 - A multi-account task (one profile per agent session) — `hat` is what isolates them.
 - The user wants to call Atlassian APIs (Jira, Confluence) under a specific identity.
+- The user wants to run AWS CLI / SDK calls under a specific identity.
+- The user wants to run OCI CLI calls under a specific identity.
 
 If the user has not configured `hat`, **don't just punt** — drive the conversational setup flow described in `references/setup-flow.md`. Detect state with `hat doctor` (or `hat list` if doctor fails), then guide the user step by step.
 
@@ -90,6 +92,23 @@ curl -s -u "$EMAIL:$TOKEN" \
 ```
 
 `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`, and `ATLASSIAN_BASE_URL` are also exported directly by `hat use`.
+
+For AWS:
+
+```bash
+aws s3 ls                          # uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE
+aws sts get-caller-identity        # verify active identity
+```
+
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_PROFILE`, and `AWS_DEFAULT_REGION` are exported by `hat use`.
+
+For OCI:
+
+```bash
+oci iam user get --user-id <ocid>  # uses OCI_CLI_PROFILE / OCI_CLI_CONFIG_FILE
+```
+
+`OCI_CLI_PROFILE` and `OCI_CLI_CONFIG_FILE` are exported by `hat use`.
 
 ## Important rules
 
