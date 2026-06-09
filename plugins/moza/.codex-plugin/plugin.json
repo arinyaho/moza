@@ -1,7 +1,7 @@
 {
   "name": "moza",
-  "version": "0.1.0",
-  "description": "Multi-identity credential router for Google, GitHub, Slack, and Atlassian — activate the right account in this shell without polluting global state.",
+  "version": "0.2.0",
+  "description": "Multi-identity credential router for Google, GitHub, Slack, Atlassian, AWS, and OCI — activate the right account in this shell without polluting global state.",
   "author": {
     "name": "arinyaho",
     "email": "arinyaho@gmail.com"
@@ -16,7 +16,9 @@
     "gcp",
     "github",
     "slack",
-    "atlassian"
+    "atlassian",
+    "aws",
+    "oci"
   ],
   "skills": "./skills/",
   "interface": {
