@@ -33,6 +33,13 @@ external references ad-hoc as a normal consequence of the rebuild.
 This is a deliberate narrowing: the goal is honest and verifiable ("this repo
 contains no `hat`"), not an unverifiable "no `hat` anywhere on the machine."
 
+**Two sanctioned machine steps** are the exception, because they *complete* the
+unification the GitHub remote already reflects (`origin` is already
+`arinyaho/moza`): (1) move the local clone `~/Projects/hat` → `~/Projects/moza`,
+and (2) update the `~/.zshrc` source line to the new path + `shell/moza.zsh`.
+These make the rewritten in-repo clone-path references resolve at runtime
+(§Clone-path references). Everything else external stays out of scope.
+
 ## Goals
 
 1. Rename the Python package, distribution, and CLI binary `hat` → `moza`.
@@ -110,8 +117,17 @@ Functions `hat-use`, `hat-unset`, `__hat_atexit` → `moza-*`; `command hat` →
 `SKILL.md` (`name: hat` → `moza`, all `hat`/`HAT` → `moza`/`MOZA`);
 `references/{setup-flow,usage,bootstrap,troubleshooting,schema}.md`;
 `plugins/moza/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`
-(longDescription); `.claude-plugin/marketplace.json` (`sha` → rename HEAD);
-`schema.md` header path + reserved manifest name.
+(longDescription); `.claude-plugin/marketplace.json` (`sha` → final commit HEAD,
+see §Rollout); `schema.md` header path + reserved manifest name.
+
+### Clone-path references (content + physical dir must agree)
+`SKILL.md:38-39` and `README.md:31-32` hardcode the local clone path
+`~/Projects/hat` (SKILL.md fallback: `$HOME/Projects/hat/src/hat/__main__.py`
+and `uv run --project $HOME/Projects/hat hat`). Rewriting these to
+`~/Projects/moza` (content) is only correct if the physical clone dir is also
+moved (§Rollout machine cutover) — otherwise the SKILL.md fallback resolves to a
+nonexistent path at runtime. Keeping `~/Projects/hat` instead would fail the
+guard grep (`/hat/` is a word boundary). Both are resolved by rewrite + `mv`.
 
 ### Historical docs (leave as-is, out of guard scope)
 `docs/superpowers/plans/*` and existing `specs/*` are dated historical records
@@ -200,11 +216,21 @@ in its own PR.)
 1. Package move + packaging → `moza --version` works.
 2. Env vars → env/shell tests green.
 3. Paths, shell wrappers, secret naming → full `pytest` green.
-4. Docs / plugin / marketplace + version unify.
+4. Docs / plugin / manifests + version unify. Includes the clone-path lines
+   (SKILL.md fallback + README clone) rewritten to `~/Projects/moza`. Do NOT set
+   the marketplace `sha` yet (step 7).
 5. Write `scripts/migrate_from_hat.py`; run it locally once to migrate a real
    config; verify `moza list` / `moza use <profile>` / `moza sync` against
    migrated state.
-6. Delete `scripts/migrate_from_hat.py` (final commit); guard grep clean → PR.
+6. **Machine cutover** (outside repo content): `mv ~/Projects/hat
+   ~/Projects/moza`; update the `~/.zshrc` source line to
+   `~/Projects/moza/shell/moza.zsh`. Now the rewritten SKILL.md/README paths
+   resolve. (Session cwd follows the move; git is unaffected — it tracks via the
+   in-tree `.git`.)
+7. Delete `scripts/migrate_from_hat.py` (last content commit). Then a dedicated
+   final commit sets `marketplace.json` `sha` to that prior HEAD — matching the
+   repo's existing "sync plugin SHA to HEAD" pattern, so the `sha` points at the
+   tree *after* the script is gone. Guard grep clean → PR.
 
 ## Acceptance criteria
 
@@ -216,9 +242,13 @@ in its own PR.)
 4. A real config migrated via the script: `~/.config/moza/config.json` (0600)
    exists, `moza list` shows the same profiles, `eval "$(moza use <p>)"`
    activates the identity, `moza sync`/`push` operate on `moza-config-manifest`.
-5. Versions: pyproject / both plugins all `0.3.0`; marketplace `sha` updated.
+5. Versions: pyproject / both plugins all `0.3.0`; marketplace `sha` set in the
+   dedicated final commit, pointing at the post-script-deletion tip.
 6. `scripts/migrate_from_hat.py` absent from the merged tree; recoverable from
    branch history.
+7. Local clone dir is `~/Projects/moza`; the SKILL.md fallback path resolves
+   (`$HOME/Projects/moza/src/moza/__main__.py` exists); no `Projects/hat` string
+   remains in tracked content.
 
 ## Rollback
 
