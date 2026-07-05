@@ -4,50 +4,50 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)
 
-Multi-identity credential router for Google, GitHub, and Slack — designed for developers juggling multiple accounts (personal + work) across services. The CLI binary is `hat`; `moza` is the repo/plugin name (Korean 모자 = hat).
+Multi-identity credential router for Google, GitHub, and Slack — designed for developers juggling multiple accounts (personal + work) across services.
 
 ## What it does
 
 Activate a named identity in your current shell:
 
 ```bash
-eval "$(hat use personal)"
-gh pr list                # uses your personal GitHub
-gcloud projects list      # uses your personal GCP
-TOKEN=$(hat token google) # mint a Gmail/Cal/Drive access token on demand
+eval "$(moza use personal)"
+gh pr list                 # uses your personal GitHub
+gcloud projects list       # uses your personal GCP
+TOKEN=$(moza token google) # mint a Gmail/Cal/Drive access token on demand
 ```
 
-A second shell can run `eval "$(hat use work)"` independently. No global state. No token files in your home directory.
+A second shell can run `eval "$(moza use work)"` independently. No global state. No token files in your home directory.
 
 ## Architecture
 
 - **Per-session env vars** activate `gcloud`, `gh`, etc.
-- **Ephemeral files** (mode 0600, `${TMPDIR}/hat/`) hold per-session ADC + Slack tokens, cleaned on shell exit.
+- **Ephemeral files** (mode 0600, `${TMPDIR}/moza/`) hold per-session ADC + Slack tokens, cleaned on shell exit.
 - **Pluggable secrets backend**: GCP Secret Manager, OCI Vault, or macOS Keychain.
 
 ## Install
 
 ```bash
-git clone <this-repo> ~/projects/hat
-cd ~/projects/hat
-uv tool install .                      # or: pipx install .
-echo "source $PWD/shell/hat.zsh" >> ~/.zshrc
+git clone <this-repo> ~/projects/moza
+cd ~/projects/moza
+uv tool install .                       # or: pipx install .
+echo "source $PWD/shell/moza.zsh" >> ~/.zshrc
 ```
 
 ## Bootstrap
 
 ```bash
-hat init                               # pick a backend
-hat login personal --service github
-hat login personal --service google --email me@x.com --client-id <id>
-hat login personal --service slack --workspace team-a
+moza init                               # pick a backend
+moza login personal --service github
+moza login personal --service google --email me@x.com --client-id <id>
+moza login personal --service slack --workspace team-a
 ```
 
 See `skills/moza/references/` for full docs.
 
 ## As an agent skill
 
-`hat` ships a SKILL.md that teaches AI agents (Claude Code, Hermes Agent) when and how to invoke the CLI on your behalf. The skill assumes the `hat` binary is already on `PATH` — install the CLI first (above), then add the skill:
+`moza` ships a SKILL.md that teaches AI agents (Claude Code, Hermes Agent) when and how to invoke the CLI on your behalf. The skill assumes the `moza` binary is already on `PATH` — install the CLI first (above), then add the skill:
 
 ### Claude Code
 
@@ -64,11 +64,11 @@ hermes skills install arinyaho/moza/skills/moza
 
 # Or add the repo as a tap source, then install
 hermes skills tap add arinyaho/moza
-hermes skills install hat
+hermes skills install moza
 
 # Or manually
 git clone https://github.com/arinyaho/moza ~/.hermes/skills/_src/moza
 ln -s ~/.hermes/skills/_src/moza/skills/moza ~/.hermes/skills/moza
 ```
 
-Once installed, the agent invokes `hat` automatically when you mention identity-scoped work ("as my work account", "switch to personal", etc.).
+Once installed, the agent invokes `moza` automatically when you mention identity-scoped work ("as my work account", "switch to personal", etc.).

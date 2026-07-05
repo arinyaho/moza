@@ -1,6 +1,6 @@
-# Config schema (`~/.config/hat/config.json`)
+# Config schema (`~/.config/moza/config.json`)
 
-Default location: `~/.config/hat/config.json`. Override with `HAT_CONFIG=/some/path`.
+Default location: `~/.config/moza/config.json`. Override with `MOZA_CONFIG=/some/path`.
 
 Top level:
 
@@ -18,7 +18,7 @@ Top level:
 
 - `gcp_secret_manager`: `{"type": "gcp_secret_manager", "project": "<gcp-project>"}`
 - `oci_vault`: `{"type": "oci_vault", "vault_ocid": "...", "compartment_ocid": "...", "region": "..."}`
-- `macos_keychain`: `{"type": "macos_keychain", "service_prefix": "hat-"}`
+- `macos_keychain`: `{"type": "macos_keychain", "service_prefix": "moza-"}`
 
 ## Profile blocks
 
@@ -50,8 +50,8 @@ All three are optional per profile.
 
 ## Reserved backend secret name
 
-`hat-config-manifest` is reserved: `hat` stores a non-secret snapshot of
+`moza-config-manifest` is reserved: `moza` stores a non-secret snapshot of
 `config.json` (refs and identifiers only — no secret values) under this name in
 cloud backends (`gcp_secret_manager`, `oci_vault`). It is pushed automatically
-after every `hat login` / `hat logout`. Do not create a profile whose rendered
+after every `moza login` / `moza logout`. Do not create a profile whose rendered
 secret name collides with it.
