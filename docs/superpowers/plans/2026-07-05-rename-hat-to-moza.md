@@ -292,55 +292,88 @@ git commit -m "refactor: rename shell wrappers + functions hat → moza"
 
 ---
 
-### Task 5: Backend secret naming (`hat-*` templates + manifest constant)
+### Task 5: Final code sweep — all remaining `hat` in src + tests → `moza`
 
-**Files:**
-- Modify: `src/moza/manifest.py:6` (`MANIFEST_SECRET_NAME`)
-- Modify: `src/moza/config.py:159-160` (default templates)
-- Modify: `src/moza/cli.py:296-297` (init default templates)
-- Modify tests: `tests/test_secret_naming.py`, `tests/test_manifest.py`,
-  `tests/test_config.py`, `tests/test_cli.py`, `tests/test_backends_keychain.py`,
-  `tests/test_backends_oci.py` (all `hat-...` literals → `moza-...`)
+This is the last code task and the one that makes the zero-legacy guard pass. It
+covers everything still saying `hat` in `src/` and `tests/` (shell/ was cleared
+in Task 4): backend secret naming, the keychain default prefix, all CLI
+help/echo/error strings, docstrings + comments, the `HatGroup` class, and the
+`hat_cfg`/`hatcfg` test identifiers. `test_shell.py` also has `/tmp/hat/` fixture
+paths.
+
+Run this task with `uv run pytest tests/ -q` (NOT plain `pytest` — a bare
+interpreter is missing optional deps and shows spurious collection errors).
+
+**Files (src):** `manifest.py`, `config.py`, `cli.py`, `backends/__init__.py`,
+`backends/keychain.py`, `ephemeral.py`, `shell.py`.
+**Files (tests):** `test_secret_naming.py`, `test_manifest.py`, `test_config.py`,
+`test_cli.py`, `test_backends_keychain.py`, `test_backends_oci.py`,
+`test_shell.py`.
 
 **Interfaces:**
 - Produces: `MANIFEST_SECRET_NAME = "moza-config-manifest"`; templates
-  `moza-{profile}-{service}-{kind}`, `moza-{profile}-slack-{workspace}-token`.
+  `moza-{profile}-{service}-{kind}`, `moza-{profile}-slack-{workspace}-token`;
+  keychain default `service_prefix="moza-"`; class `MozaGroup`; test fixture
+  `moza_cfg`.
 
-- [ ] **Step 1: Change the constants + templates in `src/`**
-
-```bash
-perl -pi -e 's/\bhat-config-manifest\b/moza-config-manifest/g' src/moza/manifest.py
-perl -pi -e 's/hat-\{profile\}/moza-{profile}/g' src/moza/config.py src/moza/cli.py
-grep -rn 'hat-' src   # expect: no output
-```
-
-- [ ] **Step 2: Update every `hat-*` literal in tests**
+- [ ] **Step 1: Compound identifiers first (order matters)**
 
 ```bash
-grep -rl 'hat-' tests | while read -r f; do
-  perl -pi -e 's/\bhat-config-manifest\b/moza-config-manifest/g;
-               s/hat-\{profile\}/moza-{profile}/g;
-               s/hat-personal/moza-personal/g;
-               s/hat-work/moza-work/g' "$f"
-done
-grep -rn 'hat-' tests   # inspect: only intended moza-* remain (no hat-)
+# class HatGroup + its cls=HatGroup usage
+perl -pi -e 's/\bHatGroup\b/MozaGroup/g' src/moza/cli.py
+# test fixture + module alias
+perl -pi -e 's/\bhat_cfg\b/moza_cfg/g; s/\bhatcfg\b/mozacfg/g' tests/*.py
 ```
 
-- [ ] **Step 3: Run the suite**
+- [ ] **Step 2: `hat-` prefixes (secret templates, keychain prefix, `hat-use`)**
 
-Run: `pytest tests/ -q`
-Expected: all pass.
+Every `hat-` in src/tests is a rename target (secret templates,
+`service_prefix="hat-"` default and its prompt inputs `"3\nhat-\n"`, and the
+`hat-use` wrapper reference). None must stay.
 
-- [ ] **Step 4: Full-repo code guard (no `hat` left in src/tests/shell)**
+```bash
+perl -pi -e 's/hat-/moza-/g' \
+  src/moza/manifest.py src/moza/config.py src/moza/cli.py \
+  src/moza/backends/__init__.py src/moza/backends/keychain.py
+grep -rl 'hat-' tests | while read -r f; do perl -pi -e 's/hat-/moza-/g' "$f"; done
+grep -rn 'hat-' src tests   # expect: no output
+```
 
-Run: `git grep -nwi hat -- src tests shell`
-Expected: no output.
+- [ ] **Step 3: Standalone lowercase word `hat` (commands, docstring, comments)**
 
-- [ ] **Step 5: Commit**
+Case-sensitive `\bhat\b` — leaves English words like `that`/`what` (no boundary)
+and any capitalized `Hat` (none remain) untouched. Covers `hat doctor`,
+`hat init`, `hat use`, `eval "$(hat use ...)"`, `"""hat — ..."""`, `# hat's own
+...`, and `/tmp/hat/` (both slashes are non-word → boundary matches).
+
+```bash
+grep -rl 'hat' src tests | while read -r f; do perl -pi -e 's/\bhat\b/moza/g' "$f"; done
+```
+
+- [ ] **Step 4: Run the suite (functional safety net)**
+
+Run: `uv run pytest tests/ -q`
+Expected: 113 passed. (If a renamed help/echo string is asserted in a test, the
+substitution kept both sides in sync — a failure here means a real miss.)
+
+- [ ] **Step 5: Zero-legacy code guard (catches compound identifiers too)**
+
+The word-boundary grep alone misses `HatGroup`/`hat_cfg`; use a broad grep that
+excludes only English words that legitimately contain the letters `hat`:
+
+```bash
+git grep -niE 'hat' -- src tests shell \
+  | grep -viE '\b(that|what|whatever|somewhat|whats|thats|chat|hatch)\b'
+# expect: NO output. Eyeball any remaining line — the only acceptable matches are
+# English words above; anything referencing the tool is a miss to fix.
+git grep -c hatchling pyproject.toml >/dev/null 2>&1 || true   # (hatchling lives in pyproject, not src)
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: rename backend secret naming hat → moza"
+git commit -m "refactor: sweep remaining hat → moza in src + tests"
 ```
 
 ---
