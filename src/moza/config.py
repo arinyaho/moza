@@ -94,7 +94,7 @@ def config_path() -> Path:
     if override:
         return Path(override)
     home = Path(os.environ.get("HOME", str(Path.home())))
-    return home / ".config" / "hat" / "config.json"
+    return home / ".config" / "moza" / "config.json"
 
 
 def serialize_config(cfg: Config) -> str:

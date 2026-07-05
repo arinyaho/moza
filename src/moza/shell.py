@@ -34,7 +34,7 @@ def _shell_quote(value: str) -> str:
 
 def _env_script_dir() -> Path:
     tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-    root = tmpdir / "hat"
+    root = tmpdir / "moza"
     root.mkdir(parents=True, exist_ok=True)
     return root
 

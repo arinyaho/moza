@@ -13,7 +13,7 @@ class EphemeralStore:
     def __init__(self, pid: int | None = None) -> None:
         self.pid = pid if pid is not None else os.getpid()
         tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-        self.root = tmpdir / "hat"
+        self.root = tmpdir / "moza"
 
     def write(self, *, profile: str, kind: str, data: bytes) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ class EphemeralStore:
     @classmethod
     def gc(cls) -> None:
         tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-        root = tmpdir / "hat"
+        root = tmpdir / "moza"
         if not root.exists():
             return
         pid_pat = re.compile(r"^(\d+)-")

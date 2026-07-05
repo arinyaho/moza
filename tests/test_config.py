@@ -27,7 +27,7 @@ def test_config_path_uses_env_override(monkeypatch, tmp_path):
 def test_config_path_default(monkeypatch, tmp_path):
     monkeypatch.delenv("MOZA_CONFIG", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert config_path() == tmp_path / ".config" / "hat" / "config.json"
+    assert config_path() == tmp_path / ".config" / "moza" / "config.json"
 
 
 def test_load_config_missing_returns_none(monkeypatch, tmp_path):
