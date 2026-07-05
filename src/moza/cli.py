@@ -10,9 +10,9 @@ from pathlib import Path
 
 import click
 
-from hat.backends import load_backend
-from hat.ephemeral import EphemeralStore
-from hat.config import (
+from moza.backends import load_backend
+from moza.ephemeral import EphemeralStore
+from moza.config import (
     AWSService,
     AtlassianService,
     BackendConfig,
@@ -27,11 +27,11 @@ from hat.config import (
     load_config,
     save_config,
 )
-from hat.env import build_env
-from hat.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
-from hat.oauth import exchange_refresh_token, google_installed_app_flow
-from hat.secret_naming import render_name
-from hat.shell import emit_unset, emit_use
+from moza.env import build_env
+from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
+from moza.oauth import exchange_refresh_token, google_installed_app_flow
+from moza.secret_naming import render_name
+from moza.shell import emit_unset, emit_use
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -93,7 +93,7 @@ class HatGroup(click.Group):
 
 
 @click.group(cls=HatGroup)
-@click.version_option(package_name="hat-cli")
+@click.version_option(package_name="moza")
 def main() -> None:
     """hat — multi-identity credential router."""
     # hat's own backend access always uses the bootstrap ADC.

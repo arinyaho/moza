@@ -1,7 +1,7 @@
 import pytest
 
-from hat.config import BackendConfig, Config, GitHubService, Profile, SecretNaming
-from hat.manifest import (
+from moza.config import BackendConfig, Config, GitHubService, Profile, SecretNaming
+from moza.manifest import (
     MANIFEST_SECRET_NAME,
     is_cloud_backend,
     pull_manifest,

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from hat.ephemeral import EphemeralStore
+from moza.ephemeral import EphemeralStore
 
 
 def test_root_uses_tmpdir(monkeypatch, tmp_path):

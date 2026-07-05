@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from hat.config import (
+from moza.config import (
     BackendConfig,
     Config,
     GitHubService,

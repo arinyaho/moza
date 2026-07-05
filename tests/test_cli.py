@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from hat.cli import main
+from moza.cli import main
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def runner():
 
 @pytest.fixture
 def hat_cfg(monkeypatch, tmp_path):
-    p = tmp_path / "hat.json"
+    p = tmp_path / "moza.json"
     monkeypatch.setenv("HAT_CONFIG", str(p))
     return p
 
@@ -62,7 +62,7 @@ def test_whoami_unknown_profile(runner, hat_cfg):
 
 
 def test_login_github_stores_token_and_updates_config(runner, hat_cfg, mocker):
-    mocker.patch("hat.cli.load_backend").return_value.put.return_value = "ref://gh-token"
+    mocker.patch("moza.cli.load_backend").return_value.put.return_value = "ref://gh-token"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(
         main,
@@ -89,7 +89,7 @@ def test_login_slack_requires_workspace(runner, hat_cfg):
 
 
 def test_login_slack_appends_workspace(runner, hat_cfg, mocker):
-    mocker.patch("hat.cli.load_backend").return_value.put.side_effect = [
+    mocker.patch("moza.cli.load_backend").return_value.put.side_effect = [
         "ref://slack-a",
         "ref://slack-b",
     ]
@@ -103,8 +103,8 @@ def test_login_slack_appends_workspace(runner, hat_cfg, mocker):
 
 
 def test_login_google_runs_oauth_and_stores(runner, hat_cfg, mocker):
-    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.side_effect = [
         "ref://oauth-secret",
         "ref://refresh",
@@ -132,7 +132,7 @@ def test_login_google_runs_oauth_and_stores(runner, hat_cfg, mocker):
 def test_use_routes_secrets_through_ephemeral_file(runner, hat_cfg, mocker, tmp_path, monkeypatch):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\nghp_xxx\nn\n")
 
@@ -156,12 +156,12 @@ def test_use_routes_secrets_through_ephemeral_file(runner, hat_cfg, mocker, tmp_
 
 def test_use_refuses_when_stdout_is_a_tty(runner, hat_cfg, mocker, monkeypatch):
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\nghp_xxx\nn\n")
 
     # Force the TTY heuristic on Click's StringIO so we can test the guard.
-    mocker.patch("hat.cli._stdout_is_tty", return_value=True)
+    mocker.patch("moza.cli._stdout_is_tty", return_value=True)
     result = runner.invoke(main, ["use", "personal"])
 
     # Must exit non-zero with a hint at the wrapper / eval form. Crucially,
@@ -174,12 +174,12 @@ def test_use_refuses_when_stdout_is_a_tty(runner, hat_cfg, mocker, monkeypatch):
 def test_use_print_flag_overrides_tty_guard(runner, hat_cfg, mocker, tmp_path, monkeypatch):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\nghp_xxx\nn\n")
 
     backend.get.return_value = b"ghp_xxx"
-    mocker.patch("hat.cli._stdout_is_tty", return_value=True)
+    mocker.patch("moza.cli._stdout_is_tty", return_value=True)
     result = runner.invoke(main, ["use", "personal", "--print"])
     assert result.exit_code == 0, result.output
     # Even with --print, stdout carries the loader (not the raw token).
@@ -194,14 +194,14 @@ def test_unset_emits_unsets(runner, hat_cfg):
 
 def test_token_google_prints_access_token(runner, hat_cfg, mocker):
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.side_effect = ["ref://oauth", "ref://refresh"]
     backend.get.side_effect = lambda r: {
         "ref://oauth": b"csec",
         "ref://refresh": b"refresh-zzz",
     }[r]
-    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
-    mocker.patch("hat.cli.exchange_refresh_token", return_value="ya29-access")
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("moza.cli.exchange_refresh_token", return_value="ya29-access")
 
     runner.invoke(
         main,
@@ -216,7 +216,7 @@ def test_token_google_prints_access_token(runner, hat_cfg, mocker):
 
 
 def test_init_non_interactive_keychain(runner, hat_cfg, mocker):
-    mocker.patch("hat.cli.load_backend").return_value.health_check.return_value = None
+    mocker.patch("moza.cli.load_backend").return_value.health_check.return_value = None
     result = runner.invoke(
         main,
         ["init", "--backend", "macos_keychain", "--service-prefix", "hat-"],
@@ -227,9 +227,9 @@ def test_init_non_interactive_keychain(runner, hat_cfg, mocker):
 
 
 def test_init_non_interactive_gcp(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("moza.cli.subprocess.run")
     result = runner.invoke(
         main,
         ["init",
@@ -246,7 +246,7 @@ def test_init_non_interactive_gcp(runner, hat_cfg, mocker):
 def test_init_yes_overwrites_existing(runner, hat_cfg, mocker):
     hat_cfg.parent.mkdir(parents=True, exist_ok=True)
     hat_cfg.write_text("{}")
-    mocker.patch("hat.cli.load_backend").return_value.health_check.return_value = None
+    mocker.patch("moza.cli.load_backend").return_value.health_check.return_value = None
     result = runner.invoke(
         main,
         ["init", "-y", "--backend", "macos_keychain", "--service-prefix", "hat-"],
@@ -255,7 +255,7 @@ def test_init_yes_overwrites_existing(runner, hat_cfg, mocker):
 
 
 def test_login_github_token_stdin(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(
@@ -269,7 +269,7 @@ def test_login_github_token_stdin(runner, hat_cfg, mocker):
 
 
 def test_login_github_ssh_key_path_skips_pat_prompt(runner, hat_cfg, mocker, tmp_path):
-    mocker.patch("hat.cli.load_backend")
+    mocker.patch("moza.cli.load_backend")
     runner.invoke(main, ["init"], input="3\nhat-\n")
     keyfile = tmp_path / "id_test"
     keyfile.write_text("PRIVATE")
@@ -287,7 +287,7 @@ def test_login_github_ssh_key_path_skips_pat_prompt(runner, hat_cfg, mocker, tmp
 
 
 def test_login_github_ssh_key_stored_in_backend(runner, hat_cfg, mocker, tmp_path):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://ssh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     keyfile = tmp_path / "id_test"
@@ -308,7 +308,7 @@ def test_login_github_ssh_key_stored_in_backend(runner, hat_cfg, mocker, tmp_pat
 
 
 def test_login_github_interactive_ssh_prompt_path(runner, hat_cfg, mocker, tmp_path):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     keyfile = tmp_path / "id_test"
     keyfile.write_text("PRIVATE")
@@ -327,7 +327,7 @@ def test_login_github_interactive_ssh_prompt_path(runner, hat_cfg, mocker, tmp_p
 
 
 def test_login_github_pat_and_ssh_compose_across_calls(runner, hat_cfg, mocker, tmp_path):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     runner.invoke(main, ["login", "work2", "--service", "github"], input="y\nme\ntok\nn\n")
@@ -344,7 +344,7 @@ def test_login_github_pat_and_ssh_compose_across_calls(runner, hat_cfg, mocker, 
 
 
 def test_preflight_keychain_passes(runner, mocker):
-    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("moza.cli.subprocess.run")
     result = runner.invoke(main, ["preflight", "--backend", "macos_keychain", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -364,8 +364,8 @@ def test_preflight_gcp_reports_missing_pieces(runner, hat_cfg, mocker):
         if cmd[:3] == ["gcloud", "services", "list"]:
             return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
-    mocker.patch("hat.cli.subprocess.run", side_effect=fake_run)
-    mocker.patch("hat.cli.Path.exists", return_value=False)  # ADC missing
+    mocker.patch("moza.cli.subprocess.run", side_effect=fake_run)
+    mocker.patch("moza.cli.Path.exists", return_value=False)  # ADC missing
     result = runner.invoke(
         main,
         ["preflight", "--backend", "gcp_secret_manager",
@@ -380,7 +380,7 @@ def test_preflight_gcp_reports_missing_pieces(runner, hat_cfg, mocker):
 
 
 def test_logout_removes_service(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     runner.invoke(main, ["login", "personal", "--service", "github"], input="y\nme\ntok\nn\n")
@@ -393,7 +393,7 @@ def test_logout_removes_service(runner, hat_cfg, mocker):
 
 def test_doctor_runs_health_check(runner, hat_cfg, mocker):
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     result = runner.invoke(main, ["doctor"])
     assert result.exit_code == 0
     backend.health_check.assert_called_once()
@@ -402,7 +402,7 @@ def test_doctor_runs_health_check(runner, hat_cfg, mocker):
 
 def test_doctor_reports_failure(runner, hat_cfg, mocker):
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.side_effect = RuntimeError("boom")
     result = runner.invoke(main, ["doctor"])
     assert result.exit_code != 0
@@ -411,8 +411,8 @@ def test_doctor_reports_failure(runner, hat_cfg, mocker):
 
 def test_doctor_gc_sweeps(runner, hat_cfg, mocker):
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    mocker.patch("hat.cli.load_backend").return_value
-    gc = mocker.patch("hat.cli.EphemeralStore.gc")
+    mocker.patch("moza.cli.load_backend").return_value
+    gc = mocker.patch("moza.cli.EphemeralStore.gc")
     runner.invoke(main, ["doctor", "--gc"])
     gc.assert_called_once()
 
@@ -432,9 +432,9 @@ def test_init_rejects_uppercase_project_id(runner, hat_cfg):
 
 
 def test_init_strips_markdown_email(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")  # don't touch real gcloud ADC
+    mocker.patch("moza.cli.subprocess.run")  # don't touch real gcloud ADC
     result = runner.invoke(
         main,
         ["init"],
@@ -446,7 +446,7 @@ def test_init_strips_markdown_email(runner, hat_cfg, mocker):
 
 
 def test_init_aborts_on_health_check_failure_with_actionable_message(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.side_effect = RuntimeError("permission denied: caller lacks role")
     result = runner.invoke(main, ["init"], input="1\nmy-proj-1\nme@x.com\n")
     assert result.exit_code != 0
@@ -459,7 +459,7 @@ def test_init_aborts_on_health_check_failure_with_actionable_message(runner, hat
 
 
 def test_init_keychain_runs_health_check(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
     result = runner.invoke(main, ["init"], input="3\nhat-\n")
     assert result.exit_code == 0
@@ -468,9 +468,9 @@ def test_init_keychain_runs_health_check(runner, hat_cfg, mocker):
 
 
 def test_init_sets_quota_project_for_gcp(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    sub = mocker.patch("hat.cli.subprocess.run")
+    sub = mocker.patch("moza.cli.subprocess.run")
     result = runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
     assert result.exit_code == 0, result.output
     quota_calls = [
@@ -483,9 +483,9 @@ def test_init_sets_quota_project_for_gcp(runner, hat_cfg, mocker):
 
 
 def test_init_warns_when_quota_project_set_fails(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run", side_effect=FileNotFoundError("gcloud"))
+    mocker.patch("moza.cli.subprocess.run", side_effect=FileNotFoundError("gcloud"))
     result = runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
     assert result.exit_code == 0
     assert "could not set ADC quota project" in result.output
@@ -493,11 +493,11 @@ def test_init_warns_when_quota_project_set_fails(runner, hat_cfg, mocker):
 
 
 def test_login_google_shows_oauth_hint_when_client_id_missing(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
     backend.put.side_effect = ["ref://oauth", "ref://refresh"]
-    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
-    mocker.patch("hat.cli.subprocess.run")  # set-quota-project no-op
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("moza.cli.subprocess.run")  # set-quota-project no-op
     runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
     result = runner.invoke(
         main,
@@ -511,11 +511,11 @@ def test_login_google_shows_oauth_hint_when_client_id_missing(runner, hat_cfg, m
 
 
 def test_login_google_skips_hint_when_client_id_provided(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
     backend.put.side_effect = ["ref://oauth", "ref://refresh"]
-    mocker.patch("hat.cli.google_installed_app_flow", return_value="refresh-zzz")
-    mocker.patch("hat.cli.subprocess.run")
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("moza.cli.subprocess.run")
     runner.invoke(main, ["init"], input="1\nsayu-studio\nme@x.com\n")
     result = runner.invoke(
         main,
@@ -528,10 +528,10 @@ def test_login_google_skips_hint_when_client_id_provided(runner, hat_cfg, mocker
 
 
 def test_login_github_pushes_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh-token"
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
-    push = mocker.patch("hat.cli.push_manifest")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
+    push = mocker.patch("moza.cli.push_manifest")
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager",
@@ -547,10 +547,10 @@ def test_login_github_pushes_manifest(runner, hat_cfg, mocker):
 
 
 def test_login_manifest_push_failure_is_nonfatal(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh-token"
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
-    mocker.patch("hat.cli.push_manifest", side_effect=RuntimeError("network down"))
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
+    mocker.patch("moza.cli.push_manifest", side_effect=RuntimeError("network down"))
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager",
@@ -567,9 +567,9 @@ def test_login_manifest_push_failure_is_nonfatal(runner, hat_cfg, mocker):
 
 
 def test_login_keychain_does_not_push_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh-token"
-    push = mocker.patch("hat.cli.push_manifest")
+    push = mocker.patch("moza.cli.push_manifest")
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(
         main,
@@ -581,10 +581,10 @@ def test_login_keychain_does_not_push_manifest(runner, hat_cfg, mocker):
 
 
 def test_logout_pushes_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://gh"
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
-    push = mocker.patch("hat.cli.push_manifest")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
+    push = mocker.patch("moza.cli.push_manifest")
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager",
@@ -599,7 +599,7 @@ def test_logout_pushes_manifest(runner, hat_cfg, mocker):
 
 
 def test_login_rejects_reserved_manifest_profile_name(runner, hat_cfg, mocker):
-    mocker.patch("hat.cli.load_backend")
+    mocker.patch("moza.cli.load_backend")
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(
         main,
@@ -611,7 +611,7 @@ def test_login_rejects_reserved_manifest_profile_name(runner, hat_cfg, mocker):
 
 
 def _manifest_cfg():
-    from hat.config import (BackendConfig, Config, GitHubService, Profile,
+    from moza.config import (BackendConfig, Config, GitHubService, Profile,
                             SecretNaming)
     return Config(
         schema_version=1,
@@ -626,10 +626,10 @@ def _manifest_cfg():
 
 
 def test_init_offers_and_imports_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager",
@@ -643,10 +643,10 @@ def test_init_offers_and_imports_manifest(runner, hat_cfg, mocker):
 
 
 def test_init_no_import_flag_skips_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
@@ -658,19 +658,19 @@ def test_init_no_import_flag_skips_manifest(runner, hat_cfg, mocker):
 
 
 def test_init_keychain_never_pulls_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    pull = mocker.patch("hat.cli.pull_manifest")
+    pull = mocker.patch("moza.cli.pull_manifest")
     result = runner.invoke(main, ["init"], input="3\nhat-\n")
     assert result.exit_code == 0, result.output
     pull.assert_not_called()
 
 
 def test_init_user_declines_manifest_import(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager",
@@ -684,17 +684,17 @@ def test_init_user_declines_manifest_import(runner, hat_cfg, mocker):
 
 
 def test_sync_dry_run_reports_diff_and_writes_nothing(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
          "--project", "p1", "--bootstrap-email", "me@x.com"],
     )
     before = hat_cfg.read_text()
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(main, ["sync", "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "+ add:" in result.output and "work" in result.output
@@ -702,16 +702,16 @@ def test_sync_dry_run_reports_diff_and_writes_nothing(runner, hat_cfg, mocker):
 
 
 def test_sync_applies_with_yes(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
          "--project", "p1", "--bootstrap-email", "me@x.com"],
     )
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(main, ["sync", "-y"])
     assert result.exit_code == 0, result.output
     payload = json.loads(hat_cfg.read_text())
@@ -719,10 +719,10 @@ def test_sync_applies_with_yes(runner, hat_cfg, mocker):
 
 
 def test_sync_no_manifest_errors(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
@@ -734,7 +734,7 @@ def test_sync_no_manifest_errors(runner, hat_cfg, mocker):
 
 
 def test_sync_requires_cloud_backend(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(main, ["sync"])
@@ -743,11 +743,11 @@ def test_sync_requires_cloud_backend(runner, hat_cfg, mocker):
 
 
 def test_sync_already_in_sync(runner, hat_cfg, mocker):
-    import hat.config as hatcfg
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    import moza.config as hatcfg
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
@@ -755,39 +755,39 @@ def test_sync_already_in_sync(runner, hat_cfg, mocker):
     )
     # make local config identical to the manifest we'll pull
     hat_cfg.write_text(hatcfg.serialize_config(_manifest_cfg()))
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(main, ["sync"])
     assert result.exit_code == 0, result.output
     assert "already in sync" in result.output
 
 
 def test_sync_user_declines_confirm_aborts(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
          "--project", "p1", "--bootstrap-email", "me@x.com"],
     )
     before = hat_cfg.read_text()
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(main, ["sync"], input="n\n")
     assert result.exit_code != 0
     assert hat_cfg.read_text() == before  # nothing written
 
 
 def test_push_command_pushes_manifest(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=None)
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=None)
     runner.invoke(
         main,
         ["init", "--backend", "gcp_secret_manager", "--no-import",
          "--project", "p1", "--bootstrap-email", "me@x.com"],
     )
-    push = mocker.patch("hat.cli.push_manifest")
+    push = mocker.patch("moza.cli.push_manifest")
     result = runner.invoke(main, ["push"])
     assert result.exit_code == 0, result.output
     push.assert_called_once()
@@ -795,10 +795,10 @@ def test_push_command_pushes_manifest(runner, hat_cfg, mocker):
 
 
 def test_push_command_noop_on_keychain(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
     runner.invoke(main, ["init"], input="3\nhat-\n")
-    push = mocker.patch("hat.cli.push_manifest")
+    push = mocker.patch("moza.cli.push_manifest")
     result = runner.invoke(main, ["push"])
     assert result.exit_code == 0, result.output
     push.assert_not_called()
@@ -806,10 +806,10 @@ def test_push_command_noop_on_keychain(runner, hat_cfg, mocker):
 
 
 def test_init_yes_auto_imports_manifest_without_prompt(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.health_check.return_value = None
-    mocker.patch("hat.cli.subprocess.run")
-    mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
+    mocker.patch("moza.cli.subprocess.run")
+    mocker.patch("moza.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(
         main,
         ["init", "-y", "--backend", "gcp_secret_manager",
@@ -822,7 +822,7 @@ def test_init_yes_auto_imports_manifest_without_prompt(runner, hat_cfg, mocker):
 
 
 def test_login_atlassian_stores_token_and_updates_config(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://atl-token"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(
@@ -845,7 +845,7 @@ def test_login_atlassian_stores_token_and_updates_config(runner, hat_cfg, mocker
 
 
 def test_list_shows_atlassian(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://atl-token"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     runner.invoke(
@@ -864,7 +864,7 @@ def test_list_shows_atlassian(runner, hat_cfg, mocker):
 
 
 def test_logout_atlassian_removes_service(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://atl-token"
     runner.invoke(main, ["init"], input="3\nhat-\n")
     runner.invoke(
@@ -885,7 +885,7 @@ def test_logout_atlassian_removes_service(runner, hat_cfg, mocker):
 
 
 def test_token_atlassian_prints_api_token(runner, hat_cfg, mocker):
-    backend = mocker.patch("hat.cli.load_backend").return_value
+    backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.return_value = "ref://atl-token"
     backend.get.return_value = b"my-secret-api-token"
     runner.invoke(main, ["init"], input="3\nhat-\n")

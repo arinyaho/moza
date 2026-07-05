@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hat.config import (
+from moza.config import (
     AWSService,
     AtlassianService,
     GitHubService,
@@ -13,7 +13,7 @@ from hat.config import (
     Profile,
     SlackWorkspace,
 )
-from hat.env import build_env
+from moza.env import build_env
 
 
 @pytest.fixture

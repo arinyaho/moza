@@ -5,9 +5,9 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hat.backends.base import SecretsBackend
-from hat.config import Profile
-from hat.ephemeral import EphemeralStore
+from moza.backends.base import SecretsBackend
+from moza.config import Profile
+from moza.ephemeral import EphemeralStore
 
 
 @dataclass

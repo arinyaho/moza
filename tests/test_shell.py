@@ -1,8 +1,8 @@
 import re
 from pathlib import Path
 
-from hat.env import EnvBundle
-from hat.shell import emit_unset, emit_use
+from moza.env import EnvBundle
+from moza.shell import emit_unset, emit_use
 
 
 def _parse_script_path(out: str) -> Path:
@@ -78,7 +78,7 @@ def test_emit_unset_lists_known_vars():
 
 
 def test_known_vars_includes_atlassian():
-    from hat.shell import KNOWN_VARS
+    from moza.shell import KNOWN_VARS
     assert "ATLASSIAN_EMAIL" in KNOWN_VARS
     assert "ATLASSIAN_API_TOKEN" in KNOWN_VARS
     assert "ATLASSIAN_BASE_URL" in KNOWN_VARS

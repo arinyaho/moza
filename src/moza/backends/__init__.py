@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hat.config import BackendConfig
+from moza.config import BackendConfig
 
 from .base import BackendError, BackendUnauthorized, SecretNotFound, SecretsBackend
 from .keychain import MacOSKeychainBackend

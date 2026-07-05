@@ -3,17 +3,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hat.backends.base import SecretNotFound
-from hat.backends.oci import OCIVaultBackend
+from moza.backends.base import SecretNotFound
+from moza.backends.oci import OCIVaultBackend
 
 
 @pytest.fixture
 def clients(mocker):
     fake_secrets = MagicMock()
     fake_vault = MagicMock()
-    mocker.patch("hat.backends.oci.oci.config.from_file", return_value={"region": "ap-chuncheon-1"})
-    mocker.patch("hat.backends.oci.SecretsClient", return_value=fake_secrets)
-    mocker.patch("hat.backends.oci.VaultsClient", return_value=fake_vault)
+    mocker.patch("moza.backends.oci.oci.config.from_file", return_value={"region": "ap-chuncheon-1"})
+    mocker.patch("moza.backends.oci.SecretsClient", return_value=fake_secrets)
+    mocker.patch("moza.backends.oci.VaultsClient", return_value=fake_vault)
     return fake_secrets, fake_vault
 
 

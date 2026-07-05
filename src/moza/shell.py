@@ -4,7 +4,7 @@ import os
 import secrets as _secrets
 from pathlib import Path
 
-from hat.env import EnvBundle
+from moza.env import EnvBundle
 
 KNOWN_VARS = [
     "HAT_PROFILE",

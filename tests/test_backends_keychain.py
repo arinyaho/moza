@@ -2,13 +2,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hat.backends.base import SecretNotFound
-from hat.backends.keychain import MacOSKeychainBackend
+from moza.backends.base import SecretNotFound
+from moza.backends.keychain import MacOSKeychainBackend
 
 
 @pytest.fixture
 def runner(mocker):
-    return mocker.patch("hat.backends.keychain._run")
+    return mocker.patch("moza.backends.keychain._run")
 
 
 def test_get_returns_bytes(runner):

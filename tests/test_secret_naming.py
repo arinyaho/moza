@@ -1,6 +1,6 @@
 import pytest
 
-from hat.secret_naming import render_name
+from moza.secret_naming import render_name
 
 
 def test_renders_default_template():
