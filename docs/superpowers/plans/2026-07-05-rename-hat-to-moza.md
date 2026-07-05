@@ -629,13 +629,21 @@ perl -pi -e 's{Projects/hat/shell/hat\.zsh}{Projects/moza/shell/moza.zsh}g' ~/.z
 grep -n 'Projects/hat\|shell/hat' ~/.zshrc   # expect: no output
 ```
 
-> **.venv note:** the gitignored `.venv/` moves with the directory and keeps the
-> old absolute paths baked into its scripts. `uv run <cmd>` detects this and
-> re-syncs the environment transparently (verified: `uv run pytest` → 113 passed
-> right after the `mv`). Only if you invoke the venv **directly**
-> (`source .venv/bin/activate` or `.venv/bin/pytest`) do you need
-> `rm -rf .venv && uv sync` first. Since every command in this plan uses
-> `uv run`, no manual step is required.
+> **.venv note (recreate after the `mv`):** the gitignored `.venv/` moves with
+> the directory but keeps the old absolute path baked into its scripts + its
+> editable self-install, and the repo ships no committed lockfile. `uv run` does
+> **not** reliably self-heal this — depending on venv state it either fails with
+> `ModuleNotFoundError` or falls back to an out-of-project `pytest` (observed on
+> a stale env: `uv run pytest` picked a Homebrew `python3.10` and reported
+> `No module named 'google'`). Deterministic fix, run right after the `mv`:
+>
+> ```bash
+> rm -rf .venv && uv sync --extra dev   # --extra dev installs pytest/pytest-mock
+> uv run pytest tests/ -q               # -> 113 passed (verified)
+> ```
+>
+> Note: plain `uv sync` omits the `dev` extra, so `uv run pytest` then resolves a
+> pytest outside the project env and mis-collects — always pass `--extra dev`.
 
 - [ ] **Step 2: Verify the SKILL.md fallback path now resolves**
 
