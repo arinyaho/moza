@@ -16,7 +16,7 @@ def runner():
 @pytest.fixture
 def hat_cfg(monkeypatch, tmp_path):
     p = tmp_path / "moza.json"
-    monkeypatch.setenv("HAT_CONFIG", str(p))
+    monkeypatch.setenv("MOZA_CONFIG", str(p))
     return p
 
 
@@ -27,14 +27,14 @@ def test_list_no_config(runner, hat_cfg):
 
 
 def test_status_when_unset(runner, hat_cfg, monkeypatch):
-    monkeypatch.delenv("HAT_PROFILE", raising=False)
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
     result = runner.invoke(main, ["status"])
     assert result.exit_code == 0
     assert "no profile active" in result.output.lower()
 
 
 def test_status_active(runner, hat_cfg, monkeypatch):
-    monkeypatch.setenv("HAT_PROFILE", "personal")
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
     result = runner.invoke(main, ["status"])
     assert "personal" in result.output
 
@@ -150,7 +150,7 @@ def test_use_routes_secrets_through_ephemeral_file(runner, hat_cfg, mocker, tmp_
     assert m, result.output
     script = Path(m.group(1))
     body = script.read_text()
-    assert "export HAT_PROFILE='personal'" in body
+    assert "export MOZA_PROFILE='personal'" in body
     assert "export GH_TOKEN='ghp_xxx'" in body
 
 
@@ -189,7 +189,7 @@ def test_use_print_flag_overrides_tty_guard(runner, hat_cfg, mocker, tmp_path, m
 def test_unset_emits_unsets(runner, hat_cfg):
     runner.invoke(main, ["init"], input="3\nhat-\n")
     result = runner.invoke(main, ["unset"])
-    assert "unset HAT_PROFILE" in result.output
+    assert "unset MOZA_PROFILE" in result.output
 
 
 def test_token_google_prints_access_token(runner, hat_cfg, mocker):
@@ -210,7 +210,7 @@ def test_token_google_prints_access_token(runner, hat_cfg, mocker):
         input="y\ncsec\n",
     )
 
-    result = runner.invoke(main, ["token", "google"], env={"HAT_PROFILE": "personal", "HAT_CONFIG": str(hat_cfg)})
+    result = runner.invoke(main, ["token", "google"], env={"MOZA_PROFILE": "personal", "MOZA_CONFIG": str(hat_cfg)})
     assert result.exit_code == 0
     assert "ya29-access" in result.output
 
@@ -901,7 +901,7 @@ def test_token_atlassian_prints_api_token(runner, hat_cfg, mocker):
     )
     result = runner.invoke(
         main, ["token", "atlassian"],
-        env={"HAT_PROFILE": "personal", "HAT_CONFIG": str(hat_cfg)},
+        env={"MOZA_PROFILE": "personal", "MOZA_CONFIG": str(hat_cfg)},
     )
     assert result.exit_code == 0, result.output
     assert "my-secret-api-token" in result.output

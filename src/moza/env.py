@@ -21,8 +21,8 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
     pid = pid if pid is not None else os.getpid()
     store = EphemeralStore(pid=pid)
     bundle = EnvBundle(profile_name=profile.name)
-    bundle.env["HAT_PROFILE"] = profile.name
-    bundle.env["HAT_EPHEMERAL_DIR"] = str(store.root)
+    bundle.env["MOZA_PROFILE"] = profile.name
+    bundle.env["MOZA_EPHEMERAL_DIR"] = str(store.root)
 
     if profile.google:
         g = profile.google
@@ -73,11 +73,11 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
             profile=profile.name, kind="slack",
             data=json.dumps(mapping).encode("utf-8"),
         )
-        bundle.env["HAT_SLACK_TOKENS"] = str(slack_path)
+        bundle.env["MOZA_SLACK_TOKENS"] = str(slack_path)
         bundle.ephemeral_files.append(slack_path)
         if len(mapping) == 1:
             (only,) = mapping.values()
-            bundle.env["HAT_SLACK_DEFAULT_TOKEN"] = only
+            bundle.env["MOZA_SLACK_DEFAULT_TOKEN"] = only
 
     if profile.aws:
         aws = profile.aws

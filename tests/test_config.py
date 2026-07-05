@@ -20,23 +20,23 @@ from moza.config import (
 
 
 def test_config_path_uses_env_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("HAT_CONFIG", str(tmp_path / "custom.json"))
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "custom.json"))
     assert config_path() == tmp_path / "custom.json"
 
 
 def test_config_path_default(monkeypatch, tmp_path):
-    monkeypatch.delenv("HAT_CONFIG", raising=False)
+    monkeypatch.delenv("MOZA_CONFIG", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     assert config_path() == tmp_path / ".config" / "hat" / "config.json"
 
 
 def test_load_config_missing_returns_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("HAT_CONFIG", str(tmp_path / "nope.json"))
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "nope.json"))
     assert load_config() is None
 
 
 def test_save_then_load_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("HAT_CONFIG", str(tmp_path / "c.json"))
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "c.json"))
     cfg = Config(
         schema_version=1,
         secrets_backend=BackendConfig(type="macos_keychain", options={"service_prefix": "hat-"}),
@@ -70,7 +70,7 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
 
 def test_save_creates_parent_dir_and_chmods_600(monkeypatch, tmp_path):
     target = tmp_path / "deep" / "nested" / "config.json"
-    monkeypatch.setenv("HAT_CONFIG", str(target))
+    monkeypatch.setenv("MOZA_CONFIG", str(target))
     cfg = Config(
         schema_version=1,
         secrets_backend=BackendConfig(type="macos_keychain", options={}),
@@ -85,7 +85,7 @@ def test_save_creates_parent_dir_and_chmods_600(monkeypatch, tmp_path):
 
 def test_load_rejects_unknown_schema_version(monkeypatch, tmp_path):
     p = tmp_path / "c.json"
-    monkeypatch.setenv("HAT_CONFIG", str(p))
+    monkeypatch.setenv("MOZA_CONFIG", str(p))
     p.write_text(json.dumps({"$schema_version": 99, "secrets_backend": {"type": "macos_keychain"}, "profiles": {}}))
     with pytest.raises(ValueError, match="schema_version"):
         load_config()

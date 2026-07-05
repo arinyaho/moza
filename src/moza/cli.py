@@ -424,7 +424,7 @@ def list_cmd() -> None:
 
 @main.command("status")
 def status_cmd() -> None:
-    active = os.environ.get("HAT_PROFILE")
+    active = os.environ.get("MOZA_PROFILE")
     if not active:
         click.echo("no profile active in this shell")
         return
@@ -434,7 +434,7 @@ def status_cmd() -> None:
         "CLOUDSDK_CORE_PROJECT",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GH_TOKEN",
-        "HAT_SLACK_TOKENS",
+        "MOZA_SLACK_TOKENS",
         "AWS_PROFILE",
         "AWS_DEFAULT_REGION",
         "AWS_ACCESS_KEY_ID",
@@ -453,9 +453,9 @@ def status_cmd() -> None:
 @click.argument("profile", required=False)
 def whoami_cmd(profile: str | None) -> None:
     cfg = _require_config()
-    name = profile or os.environ.get("HAT_PROFILE")
+    name = profile or os.environ.get("MOZA_PROFILE")
     if not name:
-        raise click.ClickException("no profile (set $HAT_PROFILE or pass an argument)")
+        raise click.ClickException("no profile (set $MOZA_PROFILE or pass an argument)")
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
@@ -882,9 +882,9 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
 @click.argument("service", type=click.Choice(["google", "atlassian"]))
 def token_cmd(service: str) -> None:
     cfg = _require_config()
-    name = os.environ.get("HAT_PROFILE")
+    name = os.environ.get("MOZA_PROFILE")
     if not name:
-        raise click.ClickException("HAT_PROFILE not set; run `eval \"$(hat use <profile>)\"` first")
+        raise click.ClickException("MOZA_PROFILE not set; run `eval \"$(hat use <profile>)\"` first")
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
