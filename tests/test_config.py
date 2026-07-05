@@ -39,11 +39,11 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
     monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "c.json"))
     cfg = Config(
         schema_version=1,
-        secrets_backend=BackendConfig(type="macos_keychain", options={"service_prefix": "hat-"}),
+        secrets_backend=BackendConfig(type="macos_keychain", options={"service_prefix": "moza-"}),
         bootstrap={},
         secret_naming=SecretNaming(
-            default="hat-{profile}-{service}-{kind}",
-            slack_token="hat-{profile}-slack-{workspace}-token",
+            default="moza-{profile}-{service}-{kind}",
+            slack_token="moza-{profile}-slack-{workspace}-token",
         ),
         profiles={
             "personal": Profile(
@@ -52,14 +52,14 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
                     email="me@example.com",
                     oauth_client_id="cid",
                     oauth_client_secret_ref=None,
-                    refresh_token_ref="hat-personal-google-refresh",
+                    refresh_token_ref="moza-personal-google-refresh",
                     adc_ref=None,
                     gcloud_config_name="personal",
                     default_project=None,
                     gcloud_login_required=False,
                 ),
-                github=GitHubService(username="me", host="github.com", token_ref="hat-personal-github-token"),
-                slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="hat-personal-slack-team-a-token")],
+                github=GitHubService(username="me", host="github.com", token_ref="moza-personal-github-token"),
+                slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="moza-personal-slack-team-a-token")],
             )
         },
     )
@@ -97,8 +97,8 @@ def _cfg() -> Config:
         secrets_backend=BackendConfig(type="gcp_secret_manager", options={"project": "p1"}),
         bootstrap={"gcp_account": "me@x.com"},
         secret_naming=SecretNaming(
-            default="hat-{profile}-{service}-{kind}",
-            slack_token="hat-{profile}-slack-{workspace}-token",
+            default="moza-{profile}-{service}-{kind}",
+            slack_token="moza-{profile}-slack-{workspace}-token",
         ),
         profiles={
             "work": Profile(

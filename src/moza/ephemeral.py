@@ -46,7 +46,7 @@ class EphemeralStore:
             if not p.is_file():
                 continue
             if env_pat.match(p.name):
-                # Orphaned env loader from a `hat use` whose eval never ran.
+                # Orphaned env loader from a `moza use` whose eval never ran.
                 # Sweep when the file is old enough that no legitimate eval
                 # could still be pending.
                 try:

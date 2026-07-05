@@ -51,6 +51,6 @@ def test_put_creates_and_returns_ocid(clients):
     vault.create_secret.return_value.data = created
 
     b = OCIVaultBackend(vault_ocid="v", compartment_ocid="c", region="r")
-    ref = b.put("hat-personal-github-token", b"ghp_xxx")
+    ref = b.put("moza-personal-github-token", b"ghp_xxx")
     assert ref == "ocid1.vaultsecret.oc1..new"
     vault.create_secret.assert_called_once()

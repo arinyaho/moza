@@ -3,7 +3,7 @@ from __future__ import annotations
 from moza.backends.base import SecretsBackend
 from moza.config import BackendConfig, Config, deserialize_config, serialize_config
 
-MANIFEST_SECRET_NAME = "hat-config-manifest"
+MANIFEST_SECRET_NAME = "moza-config-manifest"
 _CLOUD_BACKENDS = {"gcp_secret_manager", "oci_vault"}
 
 

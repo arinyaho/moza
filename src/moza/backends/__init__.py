@@ -16,7 +16,7 @@ __all__ = [
 
 def load_backend(cfg: BackendConfig) -> SecretsBackend:
     if cfg.type == "macos_keychain":
-        return MacOSKeychainBackend(service_prefix=cfg.options.get("service_prefix", "hat-"))
+        return MacOSKeychainBackend(service_prefix=cfg.options.get("service_prefix", "moza-"))
     if cfg.type == "gcp_secret_manager":
         from .gcp import GCPSecretManagerBackend
         return GCPSecretManagerBackend(project=cfg.options["project"])

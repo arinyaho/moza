@@ -44,7 +44,7 @@ def write_env_script(bundle: EnvBundle) -> Path:
 
     The file is named env-<hex>.sh so EphemeralStore.gc() — which only sweeps
     PID-prefixed files — leaves it alone. The eval'd one-liner unlinks the
-    file after sourcing; orphans are swept by `hat doctor --gc`.
+    file after sourcing; orphans are swept by `moza doctor --gc`.
     """
     root = _env_script_dir()
     path = root / f"env-{_secrets.token_hex(8)}.sh"

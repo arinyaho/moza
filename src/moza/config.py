@@ -156,8 +156,8 @@ def _config_from_dict(raw: dict) -> Config:
 
     sn = raw.get("secret_naming") or {}
     secret_naming = SecretNaming(
-        default=sn.get("default", "hat-{profile}-{service}-{kind}"),
-        slack_token=sn.get("slack_token", "hat-{profile}-slack-{workspace}-token"),
+        default=sn.get("default", "moza-{profile}-{service}-{kind}"),
+        slack_token=sn.get("slack_token", "moza-{profile}-slack-{workspace}-token"),
     )
 
     profiles: dict[str, Profile] = {}

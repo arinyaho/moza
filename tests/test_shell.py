@@ -19,9 +19,9 @@ def test_emit_use_does_not_leak_secrets_to_stdout(tmp_path, monkeypatch):
         env={
             "MOZA_PROFILE": "personal",
             "GH_TOKEN": "ghp_xx'yy",
-            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/hat/x y.json",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/moza/x y.json",
         },
-        ephemeral_files=[Path("/tmp/hat/x y.json")],
+        ephemeral_files=[Path("/tmp/moza/x y.json")],
     )
     out = emit_use(bundle)
 
@@ -44,7 +44,7 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
         env={
             "MOZA_PROFILE": "personal",
             "GH_TOKEN": "ghp_xx'yy",
-            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/hat/x y.json",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/moza/x y.json",
         },
     )
     out = emit_use(bundle)
@@ -57,7 +57,7 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
     body = path.read_text()
     assert "export MOZA_PROFILE='personal'" in body
     assert "GH_TOKEN='ghp_xx'\"'\"'yy'" in body
-    assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/hat/x y.json'" in body
+    assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/moza/x y.json'" in body
 
 
 def test_emit_unset_lists_known_vars():
