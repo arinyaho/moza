@@ -148,7 +148,9 @@ is authored as `moza` when SP2 is formally specced — not in this PR.
   Net: recoverable from branch history, smoke-testable during the branch, but
   absent from the merged tree and the shipped artifact → zero-legacy holds.
 - **Standalone / no version coupling.** It reads the old config with plain
-  `json.load("~/.config/hat/config.json")`. For backend I/O it may load
+  `json.load` from `Path.home() / ".config/hat/config.json"` (note: `open()`
+  does not expand `~` — use `Path.home()` / `os.path.expanduser`, not a literal
+  `"~/..."`). For backend I/O it may load
   `moza.backends.load_backend(cfg.secrets_backend)` and use the primitive
   `.get/.list/.put` with **explicit names**, but it MUST NOT call
   `pull_manifest`/`push_manifest` — those hardcode `MANIFEST_SECRET_NAME`, which
@@ -213,7 +215,15 @@ in its own PR.)
 
 ## Rollout order
 
-1. Package move + packaging → `moza --version` works.
+1. Package move + packaging. `git mv src/hat src/moza`, rewrite imports +
+   `pyproject.toml` (name/scripts/wheel packages/`version_option`). **Uninstall
+   the old tool** — `uv tool uninstall hat-cli` (it currently owns the live
+   `hat` binary; leaving it installed lets `hat` keep resolving and masks broken
+   external refs during testing). Install the new one **non-editably**:
+   `uv tool install .` — keep it non-editable (a copy, not a `-e`/src-linked
+   env), which is exactly what makes the step-6 `mv` safe; do NOT use
+   `pip install -e .`. Gate: `moza --version` works AND `command -v hat` is
+   empty.
 2. Env vars → env/shell tests green.
 3. Paths, shell wrappers, secret naming → full `pytest` green.
 4. Docs / plugin / manifests + version unify. Includes the clone-path lines
@@ -249,6 +259,8 @@ in its own PR.)
 7. Local clone dir is `~/Projects/moza`; the SKILL.md fallback path resolves
    (`$HOME/Projects/moza/src/moza/__main__.py` exists); no `Projects/hat` string
    remains in tracked content.
+8. Old tool gone: `uv tool list` shows no `hat-cli`; `command -v hat` is empty;
+   `moza` is on `PATH`.
 
 ## Rollback
 
