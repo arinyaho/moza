@@ -7,5 +7,3 @@ dist/
 build/
 .coverage
 .DS_Store
-uv.lock
-.superpowers/

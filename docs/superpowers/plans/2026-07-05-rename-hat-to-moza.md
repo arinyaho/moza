@@ -629,6 +629,14 @@ perl -pi -e 's{Projects/hat/shell/hat\.zsh}{Projects/moza/shell/moza.zsh}g' ~/.z
 grep -n 'Projects/hat\|shell/hat' ~/.zshrc   # expect: no output
 ```
 
+> **.venv note:** the gitignored `.venv/` moves with the directory and keeps the
+> old absolute paths baked into its scripts. `uv run <cmd>` detects this and
+> re-syncs the environment transparently (verified: `uv run pytest` → 113 passed
+> right after the `mv`). Only if you invoke the venv **directly**
+> (`source .venv/bin/activate` or `.venv/bin/pytest`) do you need
+> `rm -rf .venv && uv sync` first. Since every command in this plan uses
+> `uv run`, no manual step is required.
+
 - [ ] **Step 2: Verify the SKILL.md fallback path now resolves**
 
 ```bash
