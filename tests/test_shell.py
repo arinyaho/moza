@@ -1,8 +1,8 @@
 import re
 from pathlib import Path
 
-from hat.env import EnvBundle
-from hat.shell import emit_unset, emit_use
+from moza.env import EnvBundle
+from moza.shell import emit_unset, emit_use
 
 
 def _parse_script_path(out: str) -> Path:
@@ -17,11 +17,11 @@ def test_emit_use_does_not_leak_secrets_to_stdout(tmp_path, monkeypatch):
     bundle = EnvBundle(
         profile_name="personal",
         env={
-            "HAT_PROFILE": "personal",
+            "MOZA_PROFILE": "personal",
             "GH_TOKEN": "ghp_xx'yy",
-            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/hat/x y.json",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/moza/x y.json",
         },
-        ephemeral_files=[Path("/tmp/hat/x y.json")],
+        ephemeral_files=[Path("/tmp/moza/x y.json")],
     )
     out = emit_use(bundle)
 
@@ -42,9 +42,9 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
     bundle = EnvBundle(
         profile_name="personal",
         env={
-            "HAT_PROFILE": "personal",
+            "MOZA_PROFILE": "personal",
             "GH_TOKEN": "ghp_xx'yy",
-            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/hat/x y.json",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/moza/x y.json",
         },
     )
     out = emit_use(bundle)
@@ -55,22 +55,22 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
     assert mode == 0o600, oct(mode)
 
     body = path.read_text()
-    assert "export HAT_PROFILE='personal'" in body
+    assert "export MOZA_PROFILE='personal'" in body
     assert "GH_TOKEN='ghp_xx'\"'\"'yy'" in body
-    assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/hat/x y.json'" in body
+    assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/moza/x y.json'" in body
 
 
 def test_emit_unset_lists_known_vars():
     out = emit_unset()
     for var in [
-        "HAT_PROFILE",
-        "HAT_EPHEMERAL_DIR",
+        "MOZA_PROFILE",
+        "MOZA_EPHEMERAL_DIR",
         "CLOUDSDK_ACTIVE_CONFIG_NAME",
         "CLOUDSDK_CORE_PROJECT",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GH_TOKEN",
-        "HAT_SLACK_TOKENS",
-        "HAT_SLACK_DEFAULT_TOKEN",
+        "MOZA_SLACK_TOKENS",
+        "MOZA_SLACK_DEFAULT_TOKEN",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
     ]:
@@ -78,7 +78,7 @@ def test_emit_unset_lists_known_vars():
 
 
 def test_known_vars_includes_atlassian():
-    from hat.shell import KNOWN_VARS
+    from moza.shell import KNOWN_VARS
     assert "ATLASSIAN_EMAIL" in KNOWN_VARS
     assert "ATLASSIAN_API_TOKEN" in KNOWN_VARS
     assert "ATLASSIAN_BASE_URL" in KNOWN_VARS

@@ -4,17 +4,17 @@ import os
 import secrets as _secrets
 from pathlib import Path
 
-from hat.env import EnvBundle
+from moza.env import EnvBundle
 
 KNOWN_VARS = [
-    "HAT_PROFILE",
-    "HAT_EPHEMERAL_DIR",
+    "MOZA_PROFILE",
+    "MOZA_EPHEMERAL_DIR",
     "CLOUDSDK_ACTIVE_CONFIG_NAME",
     "CLOUDSDK_CORE_PROJECT",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GH_TOKEN",
-    "HAT_SLACK_TOKENS",
-    "HAT_SLACK_DEFAULT_TOKEN",
+    "MOZA_SLACK_TOKENS",
+    "MOZA_SLACK_DEFAULT_TOKEN",
     "AWS_PROFILE",
     "AWS_DEFAULT_REGION",
     "AWS_ACCESS_KEY_ID",
@@ -34,7 +34,7 @@ def _shell_quote(value: str) -> str:
 
 def _env_script_dir() -> Path:
     tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-    root = tmpdir / "hat"
+    root = tmpdir / "moza"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -44,7 +44,7 @@ def write_env_script(bundle: EnvBundle) -> Path:
 
     The file is named env-<hex>.sh so EphemeralStore.gc() — which only sweeps
     PID-prefixed files — leaves it alone. The eval'd one-liner unlinks the
-    file after sourcing; orphans are swept by `hat doctor --gc`.
+    file after sourcing; orphans are swept by `moza doctor --gc`.
     """
     root = _env_script_dir()
     path = root / f"env-{_secrets.token_hex(8)}.sh"

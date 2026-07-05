@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hat.config import (
+from moza.config import (
     AWSService,
     AtlassianService,
     GitHubService,
@@ -13,7 +13,7 @@ from hat.config import (
     Profile,
     SlackWorkspace,
 )
-from hat.env import build_env
+from moza.env import build_env
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def test_google_synthesizes_adc_from_refresh_token(monkeypatch, tmp_path, fake_b
     )
     bundle = build_env(prof, fake_backend, pid=111)
     env = bundle.env
-    assert env["HAT_PROFILE"] == "personal"
+    assert env["MOZA_PROFILE"] == "personal"
     assert env["CLOUDSDK_ACTIVE_CONFIG_NAME"] == "personal"
     assert env["CLOUDSDK_CORE_PROJECT"] == "myproj"
     adc_path = Path(env["GOOGLE_APPLICATION_CREDENTIALS"])
@@ -62,7 +62,7 @@ def test_google_synthesizes_adc_from_refresh_token(monkeypatch, tmp_path, fake_b
     }
     assert (adc_path.stat().st_mode & 0o777) == 0o600
     assert "GH_TOKEN" not in env
-    assert "HAT_SLACK_TOKENS" not in env
+    assert "MOZA_SLACK_TOKENS" not in env
     assert fake_backend.get.call_count == 2  # refresh_token_ref + oauth_client_secret_ref
 
 
@@ -139,7 +139,7 @@ def test_slack_writes_workspace_map(monkeypatch, tmp_path, fake_backend):
         ],
     )
     bundle = build_env(prof, fake_backend, pid=444)
-    p = Path(bundle.env["HAT_SLACK_TOKENS"])
+    p = Path(bundle.env["MOZA_SLACK_TOKENS"])
     payload = json.loads(p.read_text())
     assert payload == {"team-a": "xoxp-aaa", "team-b": "xoxp-bbb"}
     assert (p.stat().st_mode & 0o777) == 0o600
@@ -148,7 +148,7 @@ def test_slack_writes_workspace_map(monkeypatch, tmp_path, fake_backend):
         slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="slack-team-a-ref")],
     )
     b2 = build_env(prof2, fake_backend, pid=555)
-    assert b2.env["HAT_SLACK_DEFAULT_TOKEN"] == "xoxp-aaa"
+    assert b2.env["MOZA_SLACK_DEFAULT_TOKEN"] == "xoxp-aaa"
 
 
 def test_aws_with_keys_sets_env(monkeypatch, tmp_path, fake_backend):

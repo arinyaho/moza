@@ -90,11 +90,11 @@ class Config:
 
 
 def config_path() -> Path:
-    override = os.environ.get("HAT_CONFIG")
+    override = os.environ.get("MOZA_CONFIG")
     if override:
         return Path(override)
     home = Path(os.environ.get("HOME", str(Path.home())))
-    return home / ".config" / "hat" / "config.json"
+    return home / ".config" / "moza" / "config.json"
 
 
 def serialize_config(cfg: Config) -> str:
@@ -156,8 +156,8 @@ def _config_from_dict(raw: dict) -> Config:
 
     sn = raw.get("secret_naming") or {}
     secret_naming = SecretNaming(
-        default=sn.get("default", "hat-{profile}-{service}-{kind}"),
-        slack_token=sn.get("slack_token", "hat-{profile}-slack-{workspace}-token"),
+        default=sn.get("default", "moza-{profile}-{service}-{kind}"),
+        slack_token=sn.get("slack_token", "moza-{profile}-slack-{workspace}-token"),
     )
 
     profiles: dict[str, Profile] = {}

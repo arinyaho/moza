@@ -1,4 +1,4 @@
-from hat.cli import main
+from moza.cli import main
 
 if __name__ == "__main__":
     main()

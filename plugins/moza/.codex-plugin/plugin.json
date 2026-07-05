@@ -1,6 +1,6 @@
 {
   "name": "moza",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Multi-identity credential router for Google, GitHub, Slack, Atlassian, AWS, and OCI — activate the right account in this shell without polluting global state.",
   "author": {
     "name": "arinyaho",
@@ -24,7 +24,7 @@
   "interface": {
     "displayName": "moza",
     "shortDescription": "Switch identities for Google, GitHub, Slack, and Atlassian",
-    "longDescription": "Use hat to activate the right identity in this shell. Each profile bundles Google (Gmail/Calendar/Drive + GCP), GitHub, Slack workspaces, and Atlassian credentials. Credentials stay in your vault; the agent never sees raw tokens.",
+    "longDescription": "Use moza to activate the right identity in this shell. Each profile bundles Google (Gmail/Calendar/Drive + GCP), GitHub, Slack workspaces, and Atlassian credentials. Credentials stay in your vault; the agent never sees raw tokens.",
     "developerName": "arinyaho",
     "category": "Developer Tools",
     "capabilities": [

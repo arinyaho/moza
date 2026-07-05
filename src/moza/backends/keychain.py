@@ -11,7 +11,7 @@ def _run(argv: list[str], stdin: bytes | None = None) -> tuple[int, bytes, bytes
 
 
 class MacOSKeychainBackend:
-    def __init__(self, service_prefix: str = "hat-") -> None:
+    def __init__(self, service_prefix: str = "moza-") -> None:
         self.service_prefix = service_prefix
 
     def get(self, ref: str) -> bytes:

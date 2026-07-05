@@ -10,9 +10,9 @@ from pathlib import Path
 
 import click
 
-from hat.backends import load_backend
-from hat.ephemeral import EphemeralStore
-from hat.config import (
+from moza.backends import load_backend
+from moza.ephemeral import EphemeralStore
+from moza.config import (
     AWSService,
     AtlassianService,
     BackendConfig,
@@ -27,11 +27,11 @@ from hat.config import (
     load_config,
     save_config,
 )
-from hat.env import build_env
-from hat.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
-from hat.oauth import exchange_refresh_token, google_installed_app_flow
-from hat.secret_naming import render_name
-from hat.shell import emit_unset, emit_use
+from moza.env import build_env
+from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
+from moza.oauth import exchange_refresh_token, google_installed_app_flow
+from moza.secret_naming import render_name
+from moza.shell import emit_unset, emit_use
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -62,24 +62,24 @@ def _friendly_backend_message(exc: BaseException) -> str | None:
         return (
             f"Permission denied accessing Secret Manager (project {project!r}).\n\n"
             "Most likely cause: your Application Default Credentials (ADC) is signed\n"
-            "in as a different account than the hat bootstrap account.\n\n"
+            "in as a different account than the moza bootstrap account.\n\n"
             "Check the current ADC account:\n"
             "  TOKEN=$(gcloud auth application-default print-access-token)\n"
             '  curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" | jq .email\n\n'
             f"If it isn't {account!r}, fix it:\n"
             f"  gcloud auth application-default login --account={account}\n\n"
-            "Then verify with: hat doctor"
+            "Then verify with: moza doctor"
         )
     if gerr is not None and isinstance(exc, gerr.Unauthenticated):
         return (
             "No Application Default Credentials available.\n\n"
             f"  gcloud auth application-default login --account={account}\n\n"
-            "Then verify with: hat doctor"
+            "Then verify with: moza doctor"
         )
     return None
 
 
-class HatGroup(click.Group):
+class MozaGroup(click.Group):
     def invoke(self, ctx: click.Context):
         try:
             return super().invoke(ctx)
@@ -92,13 +92,13 @@ class HatGroup(click.Group):
             raise
 
 
-@click.group(cls=HatGroup)
-@click.version_option(package_name="hat-cli")
+@click.group(cls=MozaGroup)
+@click.version_option(package_name="moza")
 def main() -> None:
-    """hat — multi-identity credential router."""
-    # hat's own backend access always uses the bootstrap ADC.
+    """moza — multi-identity credential router."""
+    # moza's own backend access always uses the bootstrap ADC.
     # An active profile's GOOGLE_APPLICATION_CREDENTIALS is meant for downstream
-    # programs (gcloud, gh, etc.), not for hat itself — pop it so google-auth
+    # programs (gcloud, gh, etc.), not for moza itself — pop it so google-auth
     # falls back to ~/.config/gcloud/application_default_credentials.json.
     os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
@@ -214,11 +214,11 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
                 "  gcloud projects add-iam-policy-binding <project> \\\n"
                 f"      --member=user:{account} --role=roles/secretmanager.admin"
             )
-            msg.append("Then: hat doctor")
+            msg.append("Then: moza doctor")
         elif backend_type == "oci_vault":
             msg.append("")
             msg.append("Check ~/.oci/config and that the API key PEM exists.")
-            msg.append("Then: hat doctor")
+            msg.append("Then: moza doctor")
         raise click.ClickException("\n".join(msg))
 
 
@@ -230,7 +230,7 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 @click.option("--vault-ocid", help="(oci) vault OCID")
 @click.option("--compartment-ocid", help="(oci) compartment OCID")
 @click.option("--region", default=None, help="(oci) region (default: ap-chuncheon-1)")
-@click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'hat-')")
+@click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'moza-')")
 @click.option("--yes", "-y", is_flag=True, help="Overwrite existing config and auto-import an existing backend manifest without prompting.")
 @click.option("--no-import", "no_import", is_flag=True,
               help="Skip importing an existing config manifest from the backend.")
@@ -284,7 +284,7 @@ def init_cmd(
         bootstrap = {}
     else:  # macos_keychain
         if service_prefix is None:
-            service_prefix = click.prompt("Service prefix", default="hat-")
+            service_prefix = click.prompt("Service prefix", default="moza-")
         backend_cfg = BackendConfig(type="macos_keychain", options={"service_prefix": service_prefix})
         bootstrap = {}
 
@@ -293,8 +293,8 @@ def init_cmd(
         secrets_backend=backend_cfg,
         bootstrap=bootstrap,
         secret_naming=SecretNaming(
-            default="hat-{profile}-{service}-{kind}",
-            slack_token="hat-{profile}-slack-{workspace}-token",
+            default="moza-{profile}-{service}-{kind}",
+            slack_token="moza-{profile}-slack-{workspace}-token",
         ),
         profiles={},
     )
@@ -317,7 +317,7 @@ def init_cmd(
         if remote and remote.profiles:
             names = ", ".join(remote.profiles)
             do_import = yes or click.confirm(
-                f"Found an existing hat config in this backend "
+                f"Found an existing moza config in this backend "
                 f"({len(remote.profiles)} profiles: {names}). Import it?",
                 default=True,
             )
@@ -326,11 +326,11 @@ def init_cmd(
                 first = next(iter(remote.profiles))
                 click.echo(
                     f'Imported {len(remote.profiles)} profiles. '
-                    f'Try: eval "$(hat use {first})"'
+                    f'Try: eval "$(moza use {first})"'
                 )
                 return
 
-    click.echo("Next: `hat login <profile> --service google|github|slack`")
+    click.echo("Next: `moza login <profile> --service google|github|slack`")
 
 
 
@@ -345,7 +345,7 @@ def _print_oauth_client_hint(cfg: Config) -> None:
     click.echo(f"  1) Open: {url}")
     click.echo("  2) Create Credentials → OAuth client ID → Application type: Desktop app")
     click.echo("  3) Copy the Client ID + Client secret, then paste below.")
-    click.echo("(One Desktop client can be reused across all hat profiles.)")
+    click.echo("(One Desktop client can be reused across all moza profiles.)")
     click.echo("")
 
 
@@ -398,7 +398,7 @@ def _set_adc_quota_project(project: str) -> None:
 def list_cmd() -> None:
     cfg = _require_config()
     if not cfg.profiles:
-        click.echo("(no profiles configured — run `hat login <name> --service ...`)")
+        click.echo("(no profiles configured — run `moza login <name> --service ...`)")
         return
     for name, prof in cfg.profiles.items():
         services = []
@@ -424,7 +424,7 @@ def list_cmd() -> None:
 
 @main.command("status")
 def status_cmd() -> None:
-    active = os.environ.get("HAT_PROFILE")
+    active = os.environ.get("MOZA_PROFILE")
     if not active:
         click.echo("no profile active in this shell")
         return
@@ -434,7 +434,7 @@ def status_cmd() -> None:
         "CLOUDSDK_CORE_PROJECT",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GH_TOKEN",
-        "HAT_SLACK_TOKENS",
+        "MOZA_SLACK_TOKENS",
         "AWS_PROFILE",
         "AWS_DEFAULT_REGION",
         "AWS_ACCESS_KEY_ID",
@@ -453,9 +453,9 @@ def status_cmd() -> None:
 @click.argument("profile", required=False)
 def whoami_cmd(profile: str | None) -> None:
     cfg = _require_config()
-    name = profile or os.environ.get("HAT_PROFILE")
+    name = profile or os.environ.get("MOZA_PROFILE")
     if not name:
-        raise click.ClickException("no profile (set $HAT_PROFILE or pass an argument)")
+        raise click.ClickException("no profile (set $MOZA_PROFILE or pass an argument)")
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
@@ -473,7 +473,7 @@ def whoami_cmd(profile: str | None) -> None:
 def _require_config() -> Config:
     cfg = load_config()
     if cfg is None:
-        raise click.ClickException("no config — run `hat init` first")
+        raise click.ClickException("no config — run `moza init` first")
     return cfg
 
 
@@ -485,7 +485,7 @@ def _save_and_sync(cfg: Config, backend) -> None:
         except Exception as exc:
             click.echo(
                 f"warning: could not sync config manifest ({exc}). "
-                f"Run `hat push` later.",
+                f"Run `moza push` later.",
                 err=True,
             )
 
@@ -779,11 +779,11 @@ def use_cmd(profile_name: str, force_print: bool) -> None:
     if _stdout_is_tty() and not force_print:
         raise click.ClickException(
             "stdout is a TTY — refusing to emit the env loader.\n"
-            "`hat use` is meant to be eval'd, not run interactively.\n\n"
+            "`moza use` is meant to be eval'd, not run interactively.\n\n"
             "Use the wrapper (recommended):\n"
-            f"  hat-use {profile_name}\n\n"
+            f"  moza-use {profile_name}\n\n"
             "Or eval directly:\n"
-            f'  eval "$(hat use {profile_name})"\n\n'
+            f'  eval "$(moza use {profile_name})"\n\n'
             "If you really need raw output, pass --print."
         )
     cfg = _require_config()
@@ -882,9 +882,9 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
 @click.argument("service", type=click.Choice(["google", "atlassian"]))
 def token_cmd(service: str) -> None:
     cfg = _require_config()
-    name = os.environ.get("HAT_PROFILE")
+    name = os.environ.get("MOZA_PROFILE")
     if not name:
-        raise click.ClickException("HAT_PROFILE not set; run `eval \"$(hat use <profile>)\"` first")
+        raise click.ClickException("MOZA_PROFILE not set; run `eval \"$(moza use <profile>)\"` first")
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
@@ -992,7 +992,7 @@ def doctor_cmd(gc: bool) -> None:
 @click.option("--account", help="(gcp) account email to verify")
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON for agent orchestration.")
 def preflight_cmd(backend: str, project: str | None, account: str | None, as_json: bool) -> None:
-    """Check environment readiness before `hat init`. Useful for agent-driven setup."""
+    """Check environment readiness before `moza init`. Useful for agent-driven setup."""
     findings: list[dict] = []
 
     def add(name: str, ok: bool, detail: str = "", fix: str = "") -> None:

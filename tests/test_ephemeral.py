@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from hat.ephemeral import EphemeralStore
+from moza.ephemeral import EphemeralStore
 
 
 def test_root_uses_tmpdir(monkeypatch, tmp_path):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     s = EphemeralStore(pid=1234)
-    assert s.root == tmp_path / "hat"
+    assert s.root == tmp_path / "moza"
 
 
 def test_write_creates_mode_0600_file(monkeypatch, tmp_path):
@@ -27,9 +27,9 @@ def test_cleanup_removes_pid_files(monkeypatch, tmp_path):
     s = EphemeralStore(pid=4242)
     s.write(profile="p", kind="adc", data=b"x")
     s.write(profile="p", kind="slack", data=b"y")
-    assert any(tmp_path.glob("hat/4242-*"))
+    assert any(tmp_path.glob("moza/4242-*"))
     s.cleanup()
-    assert not any(tmp_path.glob("hat/4242-*"))
+    assert not any(tmp_path.glob("moza/4242-*"))
 
 
 def test_gc_removes_files_for_dead_pids(monkeypatch, tmp_path):
@@ -41,6 +41,6 @@ def test_gc_removes_files_for_dead_pids(monkeypatch, tmp_path):
 
     EphemeralStore.gc()
 
-    survivors = list((tmp_path / "hat").iterdir())
+    survivors = list((tmp_path / "moza").iterdir())
     assert any(str(alive) in p.name for p in survivors)
     assert not any(str(dead) in p.name for p in survivors)

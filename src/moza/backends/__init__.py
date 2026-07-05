@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hat.config import BackendConfig
+from moza.config import BackendConfig
 
 from .base import BackendError, BackendUnauthorized, SecretNotFound, SecretsBackend
 from .keychain import MacOSKeychainBackend
@@ -16,7 +16,7 @@ __all__ = [
 
 def load_backend(cfg: BackendConfig) -> SecretsBackend:
     if cfg.type == "macos_keychain":
-        return MacOSKeychainBackend(service_prefix=cfg.options.get("service_prefix", "hat-"))
+        return MacOSKeychainBackend(service_prefix=cfg.options.get("service_prefix", "moza-"))
     if cfg.type == "gcp_secret_manager":
         from .gcp import GCPSecretManagerBackend
         return GCPSecretManagerBackend(project=cfg.options["project"])

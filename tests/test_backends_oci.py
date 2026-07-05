@@ -3,17 +3,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hat.backends.base import SecretNotFound
-from hat.backends.oci import OCIVaultBackend
+from moza.backends.base import SecretNotFound
+from moza.backends.oci import OCIVaultBackend
 
 
 @pytest.fixture
 def clients(mocker):
     fake_secrets = MagicMock()
     fake_vault = MagicMock()
-    mocker.patch("hat.backends.oci.oci.config.from_file", return_value={"region": "ap-chuncheon-1"})
-    mocker.patch("hat.backends.oci.SecretsClient", return_value=fake_secrets)
-    mocker.patch("hat.backends.oci.VaultsClient", return_value=fake_vault)
+    mocker.patch("moza.backends.oci.oci.config.from_file", return_value={"region": "ap-chuncheon-1"})
+    mocker.patch("moza.backends.oci.SecretsClient", return_value=fake_secrets)
+    mocker.patch("moza.backends.oci.VaultsClient", return_value=fake_vault)
     return fake_secrets, fake_vault
 
 
@@ -51,6 +51,6 @@ def test_put_creates_and_returns_ocid(clients):
     vault.create_secret.return_value.data = created
 
     b = OCIVaultBackend(vault_ocid="v", compartment_ocid="c", region="r")
-    ref = b.put("hat-personal-github-token", b"ghp_xxx")
+    ref = b.put("moza-personal-github-token", b"ghp_xxx")
     assert ref == "ocid1.vaultsecret.oc1..new"
     vault.create_secret.assert_called_once()

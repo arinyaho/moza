@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hat.oauth import google_installed_app_flow
+from moza.oauth import google_installed_app_flow
 
 
 def test_returns_refresh_token_from_creds(mocker):
@@ -12,7 +12,7 @@ def test_returns_refresh_token_from_creds(mocker):
     fake_flow.run_local_server.return_value = fake_creds
 
     mocker.patch(
-        "hat.oauth.InstalledAppFlow.from_client_config",
+        "moza.oauth.InstalledAppFlow.from_client_config",
         return_value=fake_flow,
     )
     rt = google_installed_app_flow(
@@ -31,6 +31,6 @@ def test_raises_when_no_refresh_token(mocker):
     fake_creds.refresh_token = None
     fake_flow = MagicMock()
     fake_flow.run_local_server.return_value = fake_creds
-    mocker.patch("hat.oauth.InstalledAppFlow.from_client_config", return_value=fake_flow)
+    mocker.patch("moza.oauth.InstalledAppFlow.from_client_config", return_value=fake_flow)
     with pytest.raises(RuntimeError, match="refresh token"):
         google_installed_app_flow(client_id="c", client_secret="s", scopes=["x"])

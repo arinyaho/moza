@@ -1,5 +1,5 @@
 from click.testing import CliRunner
-from hat.cli import main
+from moza.cli import main
 
 
 def test_cli_help_runs():
