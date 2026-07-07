@@ -272,9 +272,11 @@ def test_assert_parses_rejects_broken_script():
 @pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
 def test_write_ambient_refuses_unparseable(monkeypatch, tmp_path):
     monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
-    # a value containing an unbalanced quote survives escaping? No: " is escaped.
-    # Force breakage via a raw newline + stray quote in the value.
-    bad = Profile(name="p", project_env=[ProjectEnvScope(match="*/x", env={"K": 'a\n"'})])
+    # _emit_value escapes \ and ", and a newline inside "..." is legal zsh, so
+    # almost every value renders as a well-formed literal. The gate's real job is
+    # the one thing left raw: an unbalanced command-substitution open ("$(") — that
+    # is what `zsh -n` rejects, so write_ambient must refuse it.
+    bad = Profile(name="p", project_env=[ProjectEnvScope(match="*/x", env={"K": "$("})])
     with pytest.raises(AmbientParseError):
         write_ambient({"p": bad})
     assert not ambient_path().exists()      # nothing written on failure
