@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,6 +9,9 @@ from moza.config import Profile, config_path
 
 HEADER = "# >>> moza ambient env (generated — do not edit; run `moza env sync`) >>>"
 FOOTER = "# <<< moza ambient env <<<"
+
+ZSHENV_BEGIN = "# >>> moza ambient (zshenv) >>>"
+ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
 
 
 def _emit_value(value: str) -> str:
@@ -72,3 +76,24 @@ def write_ambient(profiles: dict[str, Profile]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(script)
     return path
+
+
+def ensure_zshenv_sources(zshenv: Path, ambient: Path) -> bool:
+    """Idempotently insert/replace a marked region in `zshenv` that sources
+    `ambient`. Returns True if the file changed. Existing user content outside
+    the marked region is preserved untouched."""
+    region = (
+        f'{ZSHENV_BEGIN}\n[ -f "{ambient}" ] && source "{ambient}"\n{ZSHENV_END}'
+    )
+    old = zshenv.read_text() if zshenv.exists() else ""
+    pattern = re.compile(re.escape(ZSHENV_BEGIN) + r".*?" + re.escape(ZSHENV_END), re.DOTALL)
+    if pattern.search(old):
+        new = pattern.sub(lambda _m: region, old)
+    else:
+        sep = "" if old == "" or old.endswith("\n") else "\n"
+        new = f"{old}{sep}{region}\n"
+    if new == old:
+        return False
+    zshenv.parent.mkdir(parents=True, exist_ok=True)
+    zshenv.write_text(new)
+    return True

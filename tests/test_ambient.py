@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 
 import pytest
 
@@ -70,3 +71,32 @@ def test_write_ambient_creates_file(monkeypatch, tmp_path):
         ProjectEnvScope(match="*/x", env={"K": "v"})])})
     assert p == ambient_path()
     assert 'export K="v"' in p.read_text()
+
+
+def test_ensure_zshenv_inserts_then_idempotent(tmp_path):
+    from moza.ambient import ensure_zshenv_sources
+    zshenv = tmp_path / ".zshenv"
+    zshenv.write_text("# user content\nexport FOO=1\n")
+    ambient = tmp_path / "ambient.zsh"
+    assert ensure_zshenv_sources(zshenv, ambient) is True
+    body = zshenv.read_text()
+    assert "# user content" in body and str(ambient) in body
+    assert body.count("moza ambient (zshenv)") == 2
+    assert ensure_zshenv_sources(zshenv, ambient) is False       # re-run: no change
+    assert zshenv.read_text().count("moza ambient (zshenv)") == 2
+
+
+@pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
+def test_behavioral_ambient_applies_under_matching_pwd(monkeypatch, tmp_path):
+    # End-to-end: a real zsh, cd'd into a matching dir, sourcing ambient.zsh,
+    # actually exports the value. This is the only test that proves it WORKS.
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    matchdir = tmp_path / "proj" / "ccp" / "chemcopilot"
+    matchdir.mkdir(parents=True)
+    write_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp"})])})
+    amb = ambient_path()
+    script = f'cd "{matchdir}"; source "{amb}"; print -r -- "$AWS_PROFILE"'
+    out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "ccp"        # value applied at the directory root
