@@ -70,6 +70,12 @@ class AtlassianService:
 
 
 @dataclass
+class ProjectEnvScope:
+    match: str
+    env: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class Profile:
     name: str
     google: GoogleService | None = None
@@ -78,6 +84,7 @@ class Profile:
     aws: AWSService | None = None
     oci: OCIService | None = None
     atlassian: AtlassianService | None = None
+    project_env: list[ProjectEnvScope] = field(default_factory=list)
 
 
 @dataclass
@@ -139,6 +146,7 @@ def _config_to_dict(cfg: Config) -> dict:
             "aws": asdict(prof.aws) if prof.aws else None,
             "oci": asdict(prof.oci) if prof.oci else None,
             "atlassian": asdict(prof.atlassian) if prof.atlassian else None,
+            "project_env": [asdict(s) for s in prof.project_env],
         }
     return {
         "$schema_version": cfg.schema_version,
@@ -168,7 +176,20 @@ def _config_from_dict(raw: dict) -> Config:
         aws = AWSService(**p["aws"]) if p.get("aws") else None
         oci = OCIService(**p["oci"]) if p.get("oci") else None
         atlassian = AtlassianService(**p["atlassian"]) if p.get("atlassian") else None
-        profiles[name] = Profile(name=name, google=google, github=github, slack=slack, aws=aws, oci=oci, atlassian=atlassian)
+        project_env = [
+            ProjectEnvScope(match=s["match"], env=dict(s.get("env") or {}))
+            for s in (p.get("project_env") or [])
+        ]
+        profiles[name] = Profile(
+            name=name,
+            google=google,
+            github=github,
+            slack=slack,
+            aws=aws,
+            oci=oci,
+            atlassian=atlassian,
+            project_env=project_env,
+        )
 
     return Config(
         schema_version=SCHEMA_VERSION,

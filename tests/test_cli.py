@@ -905,3 +905,23 @@ def test_token_atlassian_prints_api_token(runner, moza_cfg, mocker):
     )
     assert result.exit_code == 0, result.output
     assert "my-secret-api-token" in result.output
+
+
+def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+    from moza.cli import main
+    from moza.config import (Config, BackendConfig, SecretNaming, Profile,
+                             ProjectEnvScope, save_config)
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    save_config(Config(schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"ccp": Profile(name="ccp", project_env=[
+            ProjectEnvScope(match="*/ccp", env={"AWS_PROFILE": "ccp"})])}))
+    res = CliRunner().invoke(main, ["env", "sync"])
+    assert res.exit_code == 0, res.output
+    ambient = (tmp_path / "config.json").parent / "ambient.zsh"
+    assert 'export AWS_PROFILE="ccp"' in ambient.read_text()
+    assert str(ambient) in (tmp_path / ".zshenv").read_text()
+    assert "ccp" in res.output
