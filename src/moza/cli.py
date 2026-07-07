@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 
+from moza.ambient import AmbientParseError, ensure_zshenv_sources, write_ambient
 from moza.backends import load_backend
 from moza.ephemeral import EphemeralStore
 from moza.config import (
@@ -856,6 +857,39 @@ def push_cmd() -> None:
     backend = load_backend(cfg.secrets_backend)
     push_manifest(cfg, backend)
     click.echo("pushed config manifest to backend")
+
+
+@main.group("env", cls=MozaGroup)
+def env_group() -> None:
+    """Manage ambient per-project env (non-interactive zsh only)."""
+
+
+@env_group.command("sync")
+def env_sync_cmd() -> None:
+    """Generate ~/.config/moza/ambient.zsh from every profile's project_env and
+    ensure ~/.zshenv sources it. Non-secret only. Idempotent. The generated
+    script is `zsh -n`-validated before anything is written or wired."""
+    cfg = _require_config()
+    try:
+        ambient = write_ambient(cfg.profiles)          # renders + parse-gates + writes
+    except AmbientParseError as exc:
+        raise click.ClickException(
+            f"Generated ambient script does not parse; nothing written.\n{exc}\n"
+            "Check your project_env values (unbalanced quotes, stray newlines)."
+        )
+    zshenv = Path(os.environ.get("HOME", str(Path.home()))) / ".zshenv"
+    changed = ensure_zshenv_sources(zshenv, ambient)
+    total = 0
+    for name in sorted(cfg.profiles):
+        n = len(cfg.profiles[name].project_env)
+        if n:
+            click.echo(f"  {name}: {n} scope(s)")
+            total += n
+    click.echo(f"Wrote {total} scope(s) to {ambient}")
+    click.echo(f"~/.zshenv {'updated' if changed else 'already wired'}: {zshenv}")
+    if total == 0:
+        click.echo("No project_env scopes configured. Add them under a profile's "
+                   "project_env and re-run. (Non-interactive zsh only in v1.)")
 
 
 @main.command("unset")

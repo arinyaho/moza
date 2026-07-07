@@ -45,6 +45,30 @@ moza login personal --service slack --workspace team-a
 
 See `skills/moza/references/` for full docs.
 
+## Ambient per-project env
+
+Some env vars (e.g. `AWS_PROFILE`) are handy set automatically just by `cd`-ing into a project directory, without running `moza use`. Configure them under a profile's `project_env`, then materialize them:
+
+```bash
+moza env sync
+```
+
+This renders every profile's `project_env` scopes into `~/.config/moza/ambient.zsh` and wires `~/.zshenv` to source it (idempotent — safe to re-run). Values are non-secret only (no secrets-backend references). Coverage is **non-interactive zsh only** — `~/.zshenv` is read by every zsh invocation, but not `/bin/sh` or `bash -c`. Before writing anything, the generated script is validated with `zsh -n`; if it fails to parse, `env sync` aborts (nonzero exit) and leaves the previous ambient file and `~/.zshenv` untouched.
+
+Example config (`match` is a bare directory glob — the directory itself and everything under it):
+
+```json
+"profiles": {
+  "ccp": {
+    "project_env": [
+      {"match": "*/ccp/chemcopilot", "env": {"AWS_PROFILE": "ccp"}}
+    ]
+  }
+}
+```
+
+A scope only covers a git worktree if the worktree's path is itself under the scope's glob — a worktree created in a sibling `/worktrees/` directory outside `*/ccp/chemcopilot` is NOT covered.
+
 ## As an agent skill
 
 `moza` ships a SKILL.md that teaches AI agents (Claude Code, Hermes Agent) when and how to invoke the CLI on your behalf. The skill assumes the `moza` binary is already on `PATH` — install the CLI first (above), then add the skill:
