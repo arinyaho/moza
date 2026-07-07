@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from moza.config import Profile
+import shutil
+import subprocess
+from pathlib import Path
+
+from moza.config import Profile, config_path
 
 HEADER = "# >>> moza ambient env (generated — do not edit; run `moza env sync`) >>>"
 FOOTER = "# <<< moza ambient env <<<"
@@ -40,3 +44,31 @@ def render_ambient(profiles: dict[str, Profile]) -> str:
             blocks.append(_scope_block(scope))
     body = ("\n".join(blocks) + "\n") if blocks else ""
     return f"{HEADER}\n{body}{FOOTER}\n"
+
+
+class AmbientParseError(Exception):
+    pass
+
+
+def ambient_path() -> Path:
+    return config_path().parent / "ambient.zsh"
+
+
+def assert_parses(script: str) -> None:
+    """Reject a script that zsh cannot parse. `zsh -n` parses without executing.
+    If zsh is not installed, skip the check (it can only run where zsh runs)."""
+    zsh = shutil.which("zsh")
+    if not zsh:
+        return
+    proc = subprocess.run([zsh, "-n"], input=script, text=True, capture_output=True)
+    if proc.returncode != 0:
+        raise AmbientParseError(proc.stderr.strip() or "zsh -n rejected the ambient script")
+
+
+def write_ambient(profiles: dict[str, Profile]) -> Path:
+    script = render_ambient(profiles)
+    assert_parses(script)               # never write an unparseable file
+    path = ambient_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(script)
+    return path
