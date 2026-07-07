@@ -88,7 +88,7 @@ def ensure_zshenv_sources(zshenv: Path, ambient: Path) -> bool:
     old = zshenv.read_text() if zshenv.exists() else ""
     pattern = re.compile(re.escape(ZSHENV_BEGIN) + r".*?" + re.escape(ZSHENV_END), re.DOTALL)
     if pattern.search(old):
-        new = pattern.sub(lambda _m: region, old)
+        new = pattern.sub(lambda _m: region, old, count=1)
     else:
         sep = "" if old == "" or old.endswith("\n") else "\n"
         new = f"{old}{sep}{region}\n"

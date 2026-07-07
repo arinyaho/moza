@@ -3,7 +3,14 @@ import subprocess
 
 import pytest
 
-from moza.ambient import AmbientParseError, ambient_path, assert_parses, render_ambient, write_ambient
+from moza.ambient import (
+    AmbientParseError,
+    ambient_path,
+    assert_parses,
+    ensure_zshenv_sources,
+    render_ambient,
+    write_ambient,
+)
 from moza.config import Profile, ProjectEnvScope
 
 
@@ -74,7 +81,6 @@ def test_write_ambient_creates_file(monkeypatch, tmp_path):
 
 
 def test_ensure_zshenv_inserts_then_idempotent(tmp_path):
-    from moza.ambient import ensure_zshenv_sources
     zshenv = tmp_path / ".zshenv"
     zshenv.write_text("# user content\nexport FOO=1\n")
     ambient = tmp_path / "ambient.zsh"
@@ -100,3 +106,20 @@ def test_behavioral_ambient_applies_under_matching_pwd(monkeypatch, tmp_path):
     out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ccp"        # value applied at the directory root
+
+
+@pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
+def test_behavioral_zshenv_sources_ambient(monkeypatch, tmp_path):
+    # Prove the FULL wiring: a zshenv with the managed region, when sourced by a
+    # real zsh under a matching $PWD, pulls in ambient.zsh and applies the value.
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    matchdir = tmp_path / "proj" / "ccp" / "chemcopilot"
+    matchdir.mkdir(parents=True)
+    write_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp"})])})
+    zshenv = tmp_path / ".zshenv"
+    ensure_zshenv_sources(zshenv, ambient_path())
+    script = f'cd "{matchdir}"; source "{zshenv}"; print -r -- "$AWS_PROFILE"'
+    out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "ccp"      # value applied via zshenv -> ambient.zsh
