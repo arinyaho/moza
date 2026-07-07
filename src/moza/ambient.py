@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from moza.config import Profile, config_path
@@ -69,12 +71,29 @@ def assert_parses(script: str) -> None:
         raise AmbientParseError(proc.stderr.strip() or "zsh -n rejected the ambient script")
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file in the SAME directory + os.replace (atomic same-fs
+    rename), so a reader (every zsh sourcing this file) sees the old or the new
+    content, never a partial write left by a disk-full or interrupted process."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def write_ambient(profiles: dict[str, Profile]) -> Path:
     script = render_ambient(profiles)
     assert_parses(script)               # never write an unparseable file
     path = ambient_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(script)
+    _atomic_write(path, script)
     return path
 
 
@@ -94,6 +113,5 @@ def ensure_zshenv_sources(zshenv: Path, ambient: Path) -> bool:
         new = f"{old}{sep}{region}\n"
     if new == old:
         return False
-    zshenv.parent.mkdir(parents=True, exist_ok=True)
-    zshenv.write_text(new)
+    _atomic_write(zshenv, new)
     return True

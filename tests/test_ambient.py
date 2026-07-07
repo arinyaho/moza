@@ -123,3 +123,25 @@ def test_behavioral_zshenv_sources_ambient(monkeypatch, tmp_path):
     out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ccp"      # value applied via zshenv -> ambient.zsh
+
+
+def test_write_ambient_leaves_no_tmp_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    write_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match="*/x", env={"K": "v"})])})
+    leftovers = [f for f in ambient_path().parent.iterdir() if f.name.endswith(".tmp")]
+    assert leftovers == []                       # atomic write cleans up its temp
+
+
+def test_ensure_zshenv_failed_write_preserves_original(monkeypatch, tmp_path):
+    from moza import ambient as _amb
+    zshenv = tmp_path / ".zshenv"
+    zshenv.write_text("# precious user content\nexport FOO=1\n")
+    ambient = tmp_path / "ambient.zsh"
+    # simulate an interrupted rename: original must survive, no partial, no temp left
+    monkeypatch.setattr(_amb.os, "replace", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    with pytest.raises(OSError):
+        _amb.ensure_zshenv_sources(zshenv, ambient)
+    assert zshenv.read_text() == "# precious user content\nexport FOO=1\n"   # untouched
+    leftovers = [f for f in tmp_path.iterdir() if f.name.endswith(".tmp")]
+    assert leftovers == []                       # temp cleaned up on failure
