@@ -128,3 +128,28 @@ def test_deserialize_rejects_bad_schema_version():
                        "bootstrap": {}, "secret_naming": {}, "profiles": {}})
     with pytest.raises(ValueError, match="schema_version"):
         deserialize_config(bad)
+
+
+def test_project_env_round_trips():
+    from moza.config import ProjectEnvScope
+    cfg = Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={},
+        secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"ccp": Profile(name="ccp", project_env=[
+            ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp", "CCP": "$HOME/ccp/chemcopilot"}),
+            ProjectEnvScope(match="*/chemcopilot-ai*", env={"PYTHONPATH": "$HOME/x/src"}),
+        ])},
+    )
+    back = deserialize_config(serialize_config(cfg))
+    scopes = back.profiles["ccp"].project_env
+    assert [s.match for s in scopes] == ["*/ccp/chemcopilot", "*/chemcopilot-ai*"]
+    assert scopes[0].env["AWS_PROFILE"] == "ccp"
+
+
+def test_config_without_project_env_defaults_empty():
+    raw = {"$schema_version": 1, "secrets_backend": {"type": "macos_keychain"},
+           "bootstrap": {}, "secret_naming": {"default": "d", "slack_token": "s"},
+           "profiles": {"p": {"github": None}}}
+    assert deserialize_config(raw).profiles["p"].project_env == []
