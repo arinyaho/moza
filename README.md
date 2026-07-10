@@ -23,7 +23,7 @@ A second shell can run `eval "$(moza use work)"` independently. No global state.
 
 - **Per-session env vars** activate `gcloud`, `gh`, etc.
 - **Ephemeral files** (mode 0600, `${TMPDIR}/moza/`) hold per-session ADC + Slack tokens, cleaned on shell exit.
-- **Pluggable secrets backend**: GCP Secret Manager, OCI Vault, or macOS Keychain.
+- **Pluggable secrets backend**: GCP Secret Manager, OCI Vault, macOS Keychain, or keyring (Linux Secret Service / Windows Credential Locker — free, no cloud, requires a desktop session).
 
 ## Install
 

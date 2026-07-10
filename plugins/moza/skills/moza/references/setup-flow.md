@@ -20,8 +20,9 @@ Ask the user (one question, multiple choice):
 > 1. **macOS Keychain** — zero setup, machine-local
 > 2. **GCP Secret Manager** — encrypted at rest, syncs across machines, requires a GCP project you own
 > 3. **OCI Vault** — same idea, on Oracle Cloud
+> 4. **keyring** — Linux Secret Service (GNOME Keyring / KWallet) or Windows Credential Locker; free, no cloud, no macOS, requires a desktop session (does NOT work headless)
 
-Recommend (1) if the user has no preference and is on macOS. (2) is best for users who already use GCP and want cross-device sync.
+Recommend (1) if the user has no preference and is on macOS. Recommend (4) for Linux or Windows users who want local storage with no cloud dependency. (2) is best for users who already use GCP and want cross-device sync.
 
 ## Step 2 — Backend prerequisites
 

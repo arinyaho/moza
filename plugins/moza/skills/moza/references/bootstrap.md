@@ -71,3 +71,12 @@ Zero setup beyond a logged-in user.
 moza init  # pick (3), service prefix defaults to "moza-"
 moza doctor
 ```
+
+## keyring (Linux Secret Service / Windows Credential Locker)
+
+Free, no cloud, no macOS. Requires a running desktop Secret Service (GNOME Keyring, KWallet, or Windows Credential Locker). Does NOT work on headless servers.
+
+```bash
+moza init  # pick (4), service prefix defaults to "moza-"
+moza doctor
+```
