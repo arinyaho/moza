@@ -59,6 +59,20 @@ def test_delete_backend_error_wraps(kr):
         b.delete("moza-personal-github-token")
 
 
+def test_get_backend_error_wraps(kr):
+    kr.get_password.side_effect = InitError("no keyring available")
+    b = KeyringBackend(service_prefix="moza-")
+    with pytest.raises(BackendError):
+        b.get("moza-personal-github-token")
+
+
+def test_put_backend_error_wraps(kr):
+    kr.set_password.side_effect = InitError("no keyring available")
+    b = KeyringBackend(service_prefix="moza-")
+    with pytest.raises(BackendError):
+        b.put("moza-personal-github-token", b"secret")
+
+
 def test_list_returns_empty(kr):
     b = KeyringBackend(service_prefix="moza-")
     assert b.list(prefix="moza-personal") == []

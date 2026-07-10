@@ -11,13 +11,19 @@ class KeyringBackend:
         self.service_prefix = service_prefix
 
     def get(self, ref: str) -> bytes:
-        value = keyring.get_password(ref, ref)
+        try:
+            value = keyring.get_password(ref, ref)
+        except KeyringError as e:
+            raise BackendError(str(e)) from e
         if value is None:
             raise SecretNotFound(ref)
         return value.encode("utf-8")
 
     def put(self, name: str, value: bytes) -> str:
-        keyring.set_password(name, name, value.decode("utf-8"))
+        try:
+            keyring.set_password(name, name, value.decode("utf-8"))
+        except KeyringError as e:
+            raise BackendError(str(e)) from e
         return name
 
     def delete(self, ref: str) -> None:
