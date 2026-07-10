@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from keyring.errors import PasswordDeleteError
+from keyring.errors import InitError, PasswordDeleteError
 
-from moza.backends.base import SecretNotFound
+from moza.backends.base import BackendError, SecretNotFound
 from moza.backends.keyring_store import KeyringBackend
 
 
@@ -50,6 +50,13 @@ def test_delete_missing_raises(kr):
     b = KeyringBackend(service_prefix="moza-")
     with pytest.raises(SecretNotFound):
         b.delete("nope")
+
+
+def test_delete_backend_error_wraps(kr):
+    kr.delete_password.side_effect = InitError("no keyring available")
+    b = KeyringBackend(service_prefix="moza-")
+    with pytest.raises(BackendError):
+        b.delete("moza-personal-github-token")
 
 
 def test_list_returns_empty(kr):

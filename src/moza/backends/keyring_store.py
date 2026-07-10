@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import keyring
-from keyring.errors import PasswordDeleteError
+from keyring.errors import KeyringError, PasswordDeleteError
 
 from .base import BackendError, SecretNotFound
 
@@ -25,6 +25,8 @@ class KeyringBackend:
             keyring.delete_password(ref, ref)
         except PasswordDeleteError as e:
             raise SecretNotFound(ref) from e
+        except KeyringError as e:
+            raise BackendError(str(e)) from e
 
     def list(self, prefix: str | None = None) -> list[str]:
         return []
