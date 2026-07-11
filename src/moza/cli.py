@@ -224,7 +224,7 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 
 
 @main.command("init")
-@click.option("--backend", type=click.Choice(["gcp_secret_manager", "oci_vault", "macos_keychain"]),
+@click.option("--backend", type=click.Choice(["gcp_secret_manager", "oci_vault", "macos_keychain", "keyring"]),
               help="Skip the backend picker.")
 @click.option("--project", help="(gcp) project ID")
 @click.option("--bootstrap-email", help="(gcp) bootstrap account email")
@@ -258,8 +258,9 @@ def init_cmd(
         click.echo("  1) gcp_secret_manager")
         click.echo("  2) oci_vault")
         click.echo("  3) macos_keychain")
-        choice = click.prompt("Choice", type=click.Choice(["1", "2", "3"]))
-        backend = {"1": "gcp_secret_manager", "2": "oci_vault", "3": "macos_keychain"}[choice]
+        click.echo("  4) keyring (Linux Secret Service / Windows Credential Locker)")
+        choice = click.prompt("Choice", type=click.Choice(["1", "2", "3", "4"]))
+        backend = {"1": "gcp_secret_manager", "2": "oci_vault", "3": "macos_keychain", "4": "keyring"}[choice]
 
     if backend == "gcp_secret_manager":
         if not project:
@@ -282,6 +283,11 @@ def init_cmd(
             type="oci_vault",
             options={"vault_ocid": vault_ocid.strip(), "compartment_ocid": compartment_ocid.strip(), "region": region},
         )
+        bootstrap = {}
+    elif backend == "keyring":
+        if service_prefix is None:
+            service_prefix = click.prompt("Service prefix", default="moza-")
+        backend_cfg = BackendConfig(type="keyring", options={"service_prefix": service_prefix})
         bootstrap = {}
     else:  # macos_keychain
         if service_prefix is None:

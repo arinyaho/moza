@@ -27,4 +27,7 @@ def load_backend(cfg: BackendConfig) -> SecretsBackend:
             compartment_ocid=cfg.options["compartment_ocid"],
             region=cfg.options["region"],
         )
+    if cfg.type == "keyring":
+        from .keyring_store import KeyringBackend
+        return KeyringBackend(service_prefix=cfg.options.get("service_prefix", "moza-"))
     raise ValueError(f"unknown backend type: {cfg.type}")

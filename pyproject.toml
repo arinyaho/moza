@@ -9,6 +9,7 @@ dependencies = [
   "google-auth-oauthlib>=1.2",
   "google-cloud-secret-manager>=2.20",
   "oci>=2.130",
+  "keyring>=24",
 ]
 
 [project.optional-dependencies]

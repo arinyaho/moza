@@ -19,6 +19,7 @@ Top level:
 - `gcp_secret_manager`: `{"type": "gcp_secret_manager", "project": "<gcp-project>"}`
 - `oci_vault`: `{"type": "oci_vault", "vault_ocid": "...", "compartment_ocid": "...", "region": "..."}`
 - `macos_keychain`: `{"type": "macos_keychain", "service_prefix": "moza-"}`
+- `keyring`: `{"type": "keyring", "service_prefix": "moza-"}` — Linux Secret Service / Windows Credential Locker; free, no cloud; requires a desktop session (does NOT work headless)
 
 ## Profile blocks
 
