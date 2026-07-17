@@ -98,12 +98,12 @@ Example config (`match` is a bare directory glob — the directory itself and ev
 
 ```json
 "profiles": {
-  "ccp": {
+  "work": {
     "project_env": [
-      {"match": "*/ccp/chemcopilot", "env": {"AWS_PROFILE": "ccp"}}
+      {"match": "*/work/arinyaho", "env": {"AWS_PROFILE": "work"}}
     ]
   }
 }
 ```
 
-A scope only covers a git worktree if the worktree's path is itself under the scope's glob — a worktree created in a sibling `/worktrees/` directory outside `*/ccp/chemcopilot` is NOT covered.
+A scope only covers a git worktree if the worktree's path is itself under the scope's glob — a worktree created in a sibling `/worktrees/` directory outside `*/work/arinyaho` is NOT covered.

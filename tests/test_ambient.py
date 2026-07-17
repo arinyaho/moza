@@ -15,21 +15,21 @@ from moza.config import Profile, ProjectEnvScope
 
 
 def test_render_matches_root_and_subdirs():
-    profiles = {"ccp": Profile(name="ccp", project_env=[
-        ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp", "CCP": "$HOME/ccp/chemcopilot"}),
+    profiles = {"work": Profile(name="work", project_env=[
+        ProjectEnvScope(match="*/work/arinyaho", env={"AWS_PROFILE": "work", "WORK_ROOT": "$HOME/work/arinyaho"}),
     ])}
     out = render_ambient(profiles)
     # matches on "$PWD/" so the directory root itself is covered, not just subdirs
-    assert 'case "$PWD/" in */ccp/chemcopilot/*)' in out
-    assert 'export AWS_PROFILE="ccp"' in out
-    assert 'export CCP="$HOME/ccp/chemcopilot"' in out       # $HOME left for zsh
+    assert 'case "$PWD/" in */work/arinyaho/*)' in out
+    assert 'export AWS_PROFILE="work"' in out
+    assert 'export WORK_ROOT="$HOME/work/arinyaho"' in out       # $HOME left for zsh
 
 
 def test_render_trailing_glob_is_normalized():
     # a user who writes the old "/*"-style glob gets the same base
     profiles = {"p": Profile(name="p", project_env=[
-        ProjectEnvScope(match="*/ccp/chemcopilot/*", env={"K": "v"})])}
-    assert 'case "$PWD/" in */ccp/chemcopilot/*)' in render_ambient(profiles)
+        ProjectEnvScope(match="*/work/arinyaho/*", env={"K": "v"})])}
+    assert 'case "$PWD/" in */work/arinyaho/*)' in render_ambient(profiles)
 
 
 def test_render_escapes_only_quote_and_backslash_keeps_dollar_and_backtick():
@@ -97,15 +97,15 @@ def test_behavioral_ambient_applies_under_matching_pwd(monkeypatch, tmp_path):
     # End-to-end: a real zsh, cd'd into a matching dir, sourcing ambient.zsh,
     # actually exports the value. This is the only test that proves it WORKS.
     monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
-    matchdir = tmp_path / "proj" / "ccp" / "chemcopilot"
+    matchdir = tmp_path / "proj" / "work" / "arinyaho"
     matchdir.mkdir(parents=True)
     write_ambient({"p": Profile(name="p", project_env=[
-        ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp"})])})
+        ProjectEnvScope(match="*/work/arinyaho", env={"AWS_PROFILE": "work"})])})
     amb = ambient_path()
     script = f'cd "{matchdir}"; source "{amb}"; print -r -- "$AWS_PROFILE"'
     out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "ccp"        # value applied at the directory root
+    assert out.stdout.strip() == "work"        # value applied at the directory root
 
 
 @pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
@@ -113,16 +113,16 @@ def test_behavioral_zshenv_sources_ambient(monkeypatch, tmp_path):
     # Prove the FULL wiring: a zshenv with the managed region, when sourced by a
     # real zsh under a matching $PWD, pulls in ambient.zsh and applies the value.
     monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
-    matchdir = tmp_path / "proj" / "ccp" / "chemcopilot"
+    matchdir = tmp_path / "proj" / "work" / "arinyaho"
     matchdir.mkdir(parents=True)
     write_ambient({"p": Profile(name="p", project_env=[
-        ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp"})])})
+        ProjectEnvScope(match="*/work/arinyaho", env={"AWS_PROFILE": "work"})])})
     zshenv = tmp_path / ".zshenv"
     ensure_zshenv_sources(zshenv, ambient_path())
     script = f'cd "{matchdir}"; source "{zshenv}"; print -r -- "$AWS_PROFILE"'
     out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "ccp"      # value applied via zshenv -> ambient.zsh
+    assert out.stdout.strip() == "work"      # value applied via zshenv -> ambient.zsh
 
 
 def test_write_ambient_leaves_no_tmp_files(monkeypatch, tmp_path):

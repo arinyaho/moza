@@ -980,11 +980,11 @@ def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
     save_config(Config(schema_version=1,
         secrets_backend=BackendConfig(type="macos_keychain", options={}),
         bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
-        profiles={"ccp": Profile(name="ccp", project_env=[
-            ProjectEnvScope(match="*/ccp", env={"AWS_PROFILE": "ccp"})])}))
+        profiles={"work": Profile(name="work", project_env=[
+            ProjectEnvScope(match="*/work", env={"AWS_PROFILE": "work"})])}))
     res = CliRunner().invoke(main, ["env", "sync"])
     assert res.exit_code == 0, res.output
     ambient = (tmp_path / "config.json").parent / "ambient.zsh"
-    assert 'export AWS_PROFILE="ccp"' in ambient.read_text()
+    assert 'export AWS_PROFILE="work"' in ambient.read_text()
     assert str(ambient) in (tmp_path / ".zshenv").read_text()
-    assert "ccp" in res.output
+    assert "work" in res.output

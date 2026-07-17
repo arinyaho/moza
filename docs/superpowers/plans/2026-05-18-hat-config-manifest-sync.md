@@ -504,7 +504,7 @@ def _manifest_cfg():
         bootstrap={"gcp_account": "me@x.com"},
         secret_naming=SecretNaming(default="hat-{profile}-{service}-{kind}",
                                    slack_token="hat-{profile}-slack-{workspace}-token"),
-        profiles={"cryptolab": Profile(name="cryptolab",
+        profiles={"arinyaho": Profile(name="arinyaho",
                                        github=GitHubService(username="u", host="github.com",
                                                             token_ref="ref://x"))},
     )
@@ -524,7 +524,7 @@ def test_init_offers_and_imports_manifest(runner, hat_cfg, mocker):
     assert result.exit_code == 0, result.output
     assert "Imported 1 profiles" in result.output
     payload = json.loads(hat_cfg.read_text())
-    assert "cryptolab" in payload["profiles"]
+    assert "arinyaho" in payload["profiles"]
 
 
 def test_init_no_import_flag_skips_manifest(runner, hat_cfg, mocker):
@@ -642,7 +642,7 @@ def test_sync_dry_run_reports_diff_and_writes_nothing(runner, hat_cfg, mocker):
     mocker.patch("hat.cli.pull_manifest", return_value=_manifest_cfg())
     result = runner.invoke(main, ["sync", "--dry-run"])
     assert result.exit_code == 0, result.output
-    assert "cryptolab" in result.output
+    assert "arinyaho" in result.output
     assert hat_cfg.read_text() == before  # unchanged
 
 
@@ -660,7 +660,7 @@ def test_sync_applies_with_yes(runner, hat_cfg, mocker):
     result = runner.invoke(main, ["sync", "-y"])
     assert result.exit_code == 0, result.output
     payload = json.loads(hat_cfg.read_text())
-    assert "cryptolab" in payload["profiles"]
+    assert "arinyaho" in payload["profiles"]
 
 
 def test_sync_no_manifest_errors(runner, hat_cfg, mocker):
