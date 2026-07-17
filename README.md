@@ -27,6 +27,8 @@ A second shell can run `eval "$(moza use work)"` independently. No global state.
 
 ## Install
 
+### CLI
+
 ```bash
 git clone <this-repo> ~/projects/moza
 cd ~/projects/moza
@@ -34,30 +36,39 @@ uv tool install .                       # or: pipx install .
 echo "source $PWD/shell/moza.zsh" >> ~/.zshrc
 ```
 
-## Install in Codex
+### As an agent skill (plugin)
 
-moza ships as a Codex CLI plugin from this same repo:
+moza also ships as a plugin that adds its identity-switching skill to your coding agent. The `moza` CLI (above) still needs to be installed and bootstrapped — the plugin adds the skill that drives it.
+
+**Claude Code:**
+
+```bash
+/plugin marketplace add arinyaho/moza
+/plugin install moza@arinyaho
+```
+
+**Codex:**
 
 ```bash
 codex plugin marketplace add arinyaho/moza --ref main   # register the marketplace
 codex plugin add moza@arinyaho                           # install the plugin
 ```
 
-Then trigger it in any Codex session — e.g. "switch to my work account". (The `moza` CLI still needs to be installed and bootstrapped as above; the plugin adds the skill that drives it.)
-
-**Update** to the latest version:
+Update the Codex plugin to the latest version:
 
 ```bash
 codex plugin marketplace upgrade arinyaho   # refresh the git snapshot
 codex plugin add moza@arinyaho              # reinstall from the refreshed snapshot
 ```
 
-**Uninstall:**
+Uninstall the Codex plugin:
 
 ```bash
 codex plugin remove moza@arinyaho
 codex plugin marketplace remove arinyaho    # optional: also drop the marketplace source
 ```
+
+Then trigger it in any session — e.g. "switch to my work account".
 
 ## Bootstrap
 
