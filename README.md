@@ -39,11 +39,25 @@ echo "source $PWD/shell/moza.zsh" >> ~/.zshrc
 moza ships as a Codex CLI plugin from this same repo:
 
 ```bash
-codex plugin marketplace add arinyaho/moza --ref main
-codex plugin add moza@arinyaho
+codex plugin marketplace add arinyaho/moza --ref main   # register the marketplace
+codex plugin add moza@arinyaho                           # install the plugin
 ```
 
 Then trigger it in any Codex session — e.g. "switch to my work account". (The `moza` CLI still needs to be installed and bootstrapped as above; the plugin adds the skill that drives it.)
+
+**Update** to the latest version:
+
+```bash
+codex plugin marketplace upgrade arinyaho   # refresh the git snapshot
+codex plugin add moza@arinyaho              # reinstall from the refreshed snapshot
+```
+
+**Uninstall:**
+
+```bash
+codex plugin remove moza@arinyaho
+codex plugin marketplace remove arinyaho    # optional: also drop the marketplace source
+```
 
 ## Bootstrap
 
