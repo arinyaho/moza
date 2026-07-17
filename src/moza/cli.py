@@ -20,6 +20,7 @@ from moza.config import (
     Config,
     GitHubService,
     GoogleService,
+    NotionService,
     OCIService,
     Profile,
     SecretNaming,
@@ -426,6 +427,8 @@ def list_cmd() -> None:
             services.append(f"oci:{prof.oci.profile or 'DEFAULT'}")
         if prof.atlassian:
             services.append(f"atlassian:{prof.atlassian.email}")
+        if prof.notion:
+            services.append("notion")
         click.echo(f"{name}\t{' '.join(services) or '(empty)'}")
 
 
@@ -450,9 +453,10 @@ def status_cmd() -> None:
         "ATLASSIAN_EMAIL",
         "ATLASSIAN_BASE_URL",
         "ATLASSIAN_API_TOKEN",
+        "NOTION_TOKEN",
     ):
         if v := os.environ.get(var):
-            shown = v if var not in ("GH_TOKEN", "AWS_ACCESS_KEY_ID", "ATLASSIAN_API_TOKEN") else "<set>"
+            shown = v if var not in ("GH_TOKEN", "AWS_ACCESS_KEY_ID", "ATLASSIAN_API_TOKEN", "NOTION_TOKEN") else "<set>"
             click.echo(f"  {var}={shown}")
 
 
@@ -474,6 +478,7 @@ def whoami_cmd(profile: str | None) -> None:
         "aws": {"profile": prof.aws.profile, "region": prof.aws.region} if prof.aws else None,
         "oci": {"profile": prof.oci.profile} if prof.oci else None,
         "atlassian": {"email": prof.atlassian.email, "base_url": prof.atlassian.base_url} if prof.atlassian else None,
+        "notion": True if prof.notion else None,
     }, indent=2))
 
 
@@ -518,7 +523,7 @@ def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming)
 
 @main.command("login")
 @click.argument("profile_name")
-@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci", "atlassian"]), required=True)
+@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci", "atlassian", "notion"]), required=True)
 @click.option("--workspace", help="Slack workspace label (required for --service slack)")
 @click.option("--email", help="(google) account email")
 @click.option("--username", help="(github) username")
@@ -526,7 +531,7 @@ def _reject_reserved_secret_name(profile_name: str, secret_naming: SecretNaming)
 @click.option("--ssh-key-path", "ssh_key_path", help="(github) register SSH key by path (per-device)")
 @click.option("--ssh-key", "ssh_key", help="(github) read SSH key file and store contents in the secrets backend")
 @click.option("--token-stdin", "token_stdin", is_flag=True,
-              help="(github/slack/aws/atlassian) read the secret from stdin instead of prompting")
+              help="(github/slack/aws/atlassian/notion) read the secret from stdin instead of prompting")
 @click.option("--secret-cmd", "secret_cmd",
               help="Run this command and use its stdout as the secret "
                    "(e.g. 'op read op://Private/item/field'). Keeps the secret out of argv/history.")
@@ -769,6 +774,19 @@ def login_cmd(
         click.echo(f"stored atlassian identity for {profile_name} at {ref}")
         return
 
+    if service == "notion":
+        prof = cfg.profiles.get(profile_name) or Profile(name=profile_name)
+        token = _read_secret("Notion integration token", secret_cmd=secret_cmd, from_stdin=token_stdin)
+        ref = backend.put(
+            render_name(cfg.secret_naming.default, profile=profile_name, service="notion", kind="api_token"),
+            token.encode("utf-8"),
+        )
+        prof.notion = NotionService(api_token_ref=ref)
+        cfg.profiles[profile_name] = prof
+        _save_and_sync(cfg, backend)
+        click.echo(f"stored notion identity for {profile_name} at {ref}")
+        return
+
 
 def _stdout_is_tty() -> bool:
     """Indirection so tests can flip the heuristic without monkey-patching
@@ -919,7 +937,7 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
 
 
 @main.command("token")
-@click.argument("service", type=click.Choice(["google", "atlassian"]))
+@click.argument("service", type=click.Choice(["google", "atlassian", "notion"]))
 def token_cmd(service: str) -> None:
     cfg = _require_config()
     name = os.environ.get("MOZA_PROFILE")
@@ -946,11 +964,16 @@ def token_cmd(service: str) -> None:
             raise click.ClickException(f"profile {name!r} has no atlassian identity")
         token = backend.get(prof.atlassian.api_token_ref).decode("utf-8").strip()
         click.echo(token)
+    elif service == "notion":
+        if not prof.notion:
+            raise click.ClickException(f"profile {name!r} has no notion identity")
+        token = backend.get(prof.notion.api_token_ref).decode("utf-8").strip()
+        click.echo(token)
 
 
 @main.command("logout")
 @click.argument("profile_name")
-@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci", "atlassian"]), required=True)
+@click.option("--service", type=click.Choice(["google", "github", "slack", "aws", "oci", "atlassian", "notion"]), required=True)
 @click.option("--workspace", help="Slack workspace label (required for --service slack)")
 def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
     cfg = _require_config()
@@ -993,6 +1016,9 @@ def logout_cmd(profile_name: str, service: str, workspace: str | None) -> None:
     elif service == "atlassian" and prof.atlassian:
         backend.delete(prof.atlassian.api_token_ref)
         prof.atlassian = None
+    elif service == "notion" and prof.notion:
+        backend.delete(prof.notion.api_token_ref)
+        prof.notion = None
     _save_and_sync(cfg, backend)
     click.echo(f"removed {service} from {profile_name}")
 

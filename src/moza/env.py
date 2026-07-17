@@ -105,4 +105,8 @@ def build_env(profile: Profile, backend: SecretsBackend, *, pid: int | None = No
         bundle.env["ATLASSIAN_API_TOKEN"] = token
         bundle.env["ATLASSIAN_BASE_URL"] = atl.base_url
 
+    if profile.notion:
+        token = backend.get(profile.notion.api_token_ref).decode("utf-8").strip()
+        bundle.env["NOTION_TOKEN"] = token
+
     return bundle

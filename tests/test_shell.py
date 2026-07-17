@@ -82,3 +82,8 @@ def test_known_vars_includes_atlassian():
     assert "ATLASSIAN_EMAIL" in KNOWN_VARS
     assert "ATLASSIAN_API_TOKEN" in KNOWN_VARS
     assert "ATLASSIAN_BASE_URL" in KNOWN_VARS
+
+
+def test_known_vars_includes_notion():
+    from moza.shell import KNOWN_VARS
+    assert "NOTION_TOKEN" in KNOWN_VARS

@@ -1,19 +1,19 @@
 ---
 name: moza
-description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, Atlassian, AWS, or OCI — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, `aws`, `oci`, and `curl` calls without polluting other agent sessions.
+description: Use when the user wants to act as a specific identity/profile across Google (Gmail/Calendar/Drive/GCP), GitHub, Slack, Atlassian, Notion, AWS, or OCI — e.g., "as my work account", "switch to <name>", "post in <workspace>", "send mail from <email>". Activates per-shell credentials for `gh`, `gcloud`, `bq`, `aws`, `oci`, and `curl` calls without polluting other agent sessions.
 version: 0.3.0
 author: arinyaho
 license: MIT
 compatibility: works best with `moza` on PATH; falls back to source if available
 metadata:
   hermes:
-    tags: [identity, credentials, multi-account, gcp, github, slack, atlassian, aws, oci]
+    tags: [identity, credentials, multi-account, gcp, github, slack, atlassian, notion, aws, oci]
     related_skills: []
 ---
 
 # moza — Multi-identity credential router
 
-The user maintains multiple identities, each bundling a Google account (Gmail/Calendar/Drive + GCP) and optionally a GitHub account, one or more Slack workspaces, an Atlassian account (Jira/Confluence), AWS credentials, and/or an OCI profile. Use `moza` to activate the right identity in this shell session.
+The user maintains multiple identities, each bundling a Google account (Gmail/Calendar/Drive + GCP) and optionally a GitHub account, one or more Slack workspaces, an Atlassian account (Jira/Confluence), a Notion integration token, AWS credentials, and/or an OCI profile. Use `moza` to activate the right identity in this shell session.
 
 ## When to use
 
@@ -22,6 +22,7 @@ Trigger any time:
 - The user asks "as <email>" / "from <email>" / "with my <something> account".
 - A multi-account task (one profile per agent session) — `moza` is what isolates them.
 - The user wants to call Atlassian APIs (Jira, Confluence) under a specific identity.
+- The user wants to call the Notion API under a specific identity.
 - The user wants to run AWS CLI / SDK calls under a specific identity.
 - The user wants to run OCI CLI calls under a specific identity.
 
@@ -93,6 +94,16 @@ curl -s -u "$EMAIL:$TOKEN" \
 
 `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`, and `ATLASSIAN_BASE_URL` are also exported directly by `moza use`.
 
+For Notion:
+
+```bash
+TOKEN=$(moza token notion)
+curl -s -H "Authorization: Bearer $TOKEN" -H "Notion-Version: 2022-06-28" \
+  https://api.notion.com/v1/users/me
+```
+
+`NOTION_TOKEN` is also exported directly by `moza use`.
+
 For AWS:
 
 ```bash
@@ -119,7 +130,7 @@ oci iam user get --user-id <ocid>  # uses OCI_CLI_PROFILE / OCI_CLI_CONFIG_FILE
   - Use a credential reference, not the value: `moza login <profile> --service <svc> --secret-cmd 'op read op://Vault/item/field'` (also works with `gcloud secrets versions access`, `security find-generic-password`, etc.). The `op://…` reference is safe to appear in history; the secret never does.
   - For Google, a pre-existing refresh token can be piped: `… --refresh-token-stdin < tokenfile` with the client secret via `--secret-cmd`.
 - **Don't switch the active profile in this shell** if the user is asking for a one-off in another identity — use `moza exec <other> -- <cmd>` so the parent shell stays clean.
-- **Don't use the agent's native Google/Slack/Atlassian connectors** when `moza` is configured — they are single-account and bypass the user's vault.
+- **Don't use the agent's native Google/Slack/Atlassian/Notion connectors** when `moza` is configured — they are single-account and bypass the user's vault.
 
 ## References
 

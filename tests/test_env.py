@@ -9,6 +9,7 @@ from moza.config import (
     AtlassianService,
     GitHubService,
     GoogleService,
+    NotionService,
     OCIService,
     Profile,
     SlackWorkspace,
@@ -217,3 +218,25 @@ def test_atlassian_sets_env(monkeypatch, tmp_path, fake_backend):
     assert bundle.env["ATLASSIAN_EMAIL"] == "me@company.com"
     assert bundle.env["ATLASSIAN_API_TOKEN"] == "atl-api-token-xyz"
     assert bundle.env["ATLASSIAN_BASE_URL"] == "https://company.atlassian.net"
+
+
+def test_notion_sets_env(monkeypatch, tmp_path, fake_backend):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    fake_backend.get.side_effect = lambda ref: {
+        **{
+            "refresh-ref": b"refresh-tok",
+            "csec-ref": b"client-secret-val",
+            "gh-token-ref": b"ghp_xxx",
+            "slack-team-a-ref": b"xoxp-aaa",
+            "slack-team-b-ref": b"xoxp-bbb",
+            "aws-key-ref": b"AKIAIOSFODNN7EXAMPLE",
+            "aws-secret-ref": b"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        },
+        "notion-token-ref": b"notion-secret-tok",
+    }[ref]
+    prof = Profile(
+        name="work",
+        notion=NotionService(api_token_ref="notion-token-ref"),
+    )
+    bundle = build_env(prof, fake_backend, pid=810)
+    assert bundle.env["NOTION_TOKEN"] == "notion-secret-tok"
