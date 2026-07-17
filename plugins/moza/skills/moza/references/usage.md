@@ -24,6 +24,13 @@ moza login personal --service slack --workspace team-a
 # paste an xoxp- user token
 ```
 
+## Add a Notion identity
+
+```bash
+moza login personal --service notion
+# paste a Notion integration token
+```
+
 ## Activate
 
 ```bash

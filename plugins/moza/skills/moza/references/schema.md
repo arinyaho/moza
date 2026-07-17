@@ -49,6 +49,11 @@ All three are optional per profile.
 [{ "workspace": "team-a", "team_id": null, "user_token_ref": "<backend-ref>" }]
 ```
 
+### `notion`
+```jsonc
+{ "api_token_ref": "<backend-ref>" }
+```
+
 ## Reserved backend secret name
 
 `moza-config-manifest` is reserved: `moza` stores a non-secret snapshot of

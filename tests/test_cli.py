@@ -907,6 +907,69 @@ def test_token_atlassian_prints_api_token(runner, moza_cfg, mocker):
     assert "my-secret-api-token" in result.output
 
 
+def test_login_notion_stores_token_and_updates_config(runner, moza_cfg, mocker):
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://notion-token"
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    result = runner.invoke(
+        main,
+        ["login", "personal", "--service", "notion", "--token-stdin"],
+        input="y\nmy-notion-token\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "stored notion identity" in result.output
+    payload = json.loads(moza_cfg.read_text())
+    assert payload["profiles"]["personal"]["notion"]["api_token_ref"] == "ref://notion-token"
+
+
+def test_list_shows_notion(runner, moza_cfg, mocker):
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://notion-token"
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "notion", "--token-stdin"],
+        input="y\nmy-notion-token\n",
+    )
+    result = runner.invoke(main, ["list"])
+    assert result.exit_code == 0, result.output
+    assert "notion" in result.output
+
+
+def test_logout_notion_removes_service(runner, moza_cfg, mocker):
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://notion-token"
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "notion", "--token-stdin"],
+        input="y\nmy-notion-token\n",
+    )
+    result = runner.invoke(main, ["logout", "personal", "--service", "notion"])
+    assert result.exit_code == 0, result.output
+    backend.delete.assert_called_with("ref://notion-token")
+    payload = json.loads(moza_cfg.read_text())
+    assert payload["profiles"]["personal"]["notion"] is None
+
+
+def test_token_notion_prints_api_token(runner, moza_cfg, mocker):
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://notion-token"
+    backend.get.return_value = b"my-secret-notion-token"
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "notion", "--token-stdin"],
+        input="y\nmy-secret-notion-token\n",
+    )
+    result = runner.invoke(
+        main, ["token", "notion"],
+        env={"MOZA_PROFILE": "personal", "MOZA_CONFIG": str(moza_cfg)},
+    )
+    assert result.exit_code == 0, result.output
+    assert "my-secret-notion-token" in result.output
+
+
 def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
     from click.testing import CliRunner
     from moza.cli import main

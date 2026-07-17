@@ -70,6 +70,11 @@ class AtlassianService:
 
 
 @dataclass
+class NotionService:
+    api_token_ref: str
+
+
+@dataclass
 class ProjectEnvScope:
     match: str
     env: dict[str, str] = field(default_factory=dict)
@@ -84,6 +89,7 @@ class Profile:
     aws: AWSService | None = None
     oci: OCIService | None = None
     atlassian: AtlassianService | None = None
+    notion: NotionService | None = None
     project_env: list[ProjectEnvScope] = field(default_factory=list)
 
 
@@ -146,6 +152,7 @@ def _config_to_dict(cfg: Config) -> dict:
             "aws": asdict(prof.aws) if prof.aws else None,
             "oci": asdict(prof.oci) if prof.oci else None,
             "atlassian": asdict(prof.atlassian) if prof.atlassian else None,
+            "notion": asdict(prof.notion) if prof.notion else None,
             "project_env": [asdict(s) for s in prof.project_env],
         }
     return {
@@ -176,6 +183,7 @@ def _config_from_dict(raw: dict) -> Config:
         aws = AWSService(**p["aws"]) if p.get("aws") else None
         oci = OCIService(**p["oci"]) if p.get("oci") else None
         atlassian = AtlassianService(**p["atlassian"]) if p.get("atlassian") else None
+        notion = NotionService(**p["notion"]) if p.get("notion") else None
         project_env = [
             ProjectEnvScope(match=s["match"], env=dict(s.get("env") or {}))
             for s in (p.get("project_env") or [])
@@ -188,6 +196,7 @@ def _config_from_dict(raw: dict) -> Config:
             aws=aws,
             oci=oci,
             atlassian=atlassian,
+            notion=notion,
             project_env=project_env,
         )
 
