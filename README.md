@@ -34,6 +34,17 @@ uv tool install .                       # or: pipx install .
 echo "source $PWD/shell/moza.zsh" >> ~/.zshrc
 ```
 
+## Install in Codex
+
+moza ships as a Codex CLI plugin from this same repo:
+
+```bash
+codex plugin marketplace add arinyaho/moza --ref main
+codex plugin add moza@arinyaho
+```
+
+Then trigger it in any Codex session — e.g. "switch to my work account". (The `moza` CLI still needs to be installed and bootstrapped as above; the plugin adds the skill that drives it.)
+
 ## Bootstrap
 
 ```bash
