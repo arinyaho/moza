@@ -291,7 +291,7 @@ class SecretsBackend(Protocol):
 
 ## Adding an Identity (`hat login`)
 
-`hat login work-cryptolab --service google`:
+`hat login work-arinyaho --service google`:
 
 1. Prompt for email (or use `--email` flag).
 2. Run OAuth installed-app flow (`oauth_client_id` from a shared / per-user OAuth client; either pre-provided or created by user in their GCP project — *not* something `hat` provisions).

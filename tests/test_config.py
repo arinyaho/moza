@@ -137,15 +137,15 @@ def test_project_env_round_trips():
         secrets_backend=BackendConfig(type="macos_keychain", options={}),
         bootstrap={},
         secret_naming=SecretNaming(default="d", slack_token="s"),
-        profiles={"ccp": Profile(name="ccp", project_env=[
-            ProjectEnvScope(match="*/ccp/chemcopilot", env={"AWS_PROFILE": "ccp", "CCP": "$HOME/ccp/chemcopilot"}),
-            ProjectEnvScope(match="*/chemcopilot-ai*", env={"PYTHONPATH": "$HOME/x/src"}),
+        profiles={"work": Profile(name="work", project_env=[
+            ProjectEnvScope(match="*/work/arinyaho", env={"AWS_PROFILE": "work", "WORK_ROOT": "$HOME/work/arinyaho"}),
+            ProjectEnvScope(match="*/arinyaho-ai*", env={"PYTHONPATH": "$HOME/x/src"}),
         ])},
     )
     back = deserialize_config(serialize_config(cfg))
-    scopes = back.profiles["ccp"].project_env
-    assert [s.match for s in scopes] == ["*/ccp/chemcopilot", "*/chemcopilot-ai*"]
-    assert scopes[0].env["AWS_PROFILE"] == "ccp"
+    scopes = back.profiles["work"].project_env
+    assert [s.match for s in scopes] == ["*/work/arinyaho", "*/arinyaho-ai*"]
+    assert scopes[0].env["AWS_PROFILE"] == "work"
 
 
 def test_config_without_project_env_defaults_empty():
