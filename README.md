@@ -36,9 +36,9 @@ uv tool install .                       # or: pipx install .
 echo "source $PWD/shell/moza.zsh" >> ~/.zshrc
 ```
 
-### As an agent skill (plugin)
+### As an agent skill
 
-moza also ships as a plugin that adds its identity-switching skill to your coding agent. The `moza` CLI (above) still needs to be installed and bootstrapped — the plugin adds the skill that drives it.
+`moza` ships a SKILL.md that teaches AI agents (Claude Code, Codex, Hermes Agent) when and how to invoke the CLI on your behalf. The skill assumes the `moza` binary is already on `PATH` — install the CLI first (above), then add the skill:
 
 **Claude Code:**
 
@@ -54,21 +54,24 @@ codex plugin marketplace add arinyaho/moza --ref main   # register the marketpla
 codex plugin add moza@arinyaho                           # install the plugin
 ```
 
-Update the Codex plugin to the latest version:
+Update the Codex plugin: `codex plugin marketplace upgrade arinyaho` then re-run `codex plugin add moza@arinyaho`. Uninstall: `codex plugin remove moza@arinyaho` (and, optionally, `codex plugin marketplace remove arinyaho`).
+
+**Hermes Agent:**
 
 ```bash
-codex plugin marketplace upgrade arinyaho   # refresh the git snapshot
-codex plugin add moza@arinyaho              # reinstall from the refreshed snapshot
+# Install directly from GitHub
+hermes skills install arinyaho/moza/skills/moza
+
+# Or add the repo as a tap source, then install
+hermes skills tap add arinyaho/moza
+hermes skills install moza
+
+# Or manually
+git clone https://github.com/arinyaho/moza ~/.hermes/skills/_src/moza
+ln -s ~/.hermes/skills/_src/moza/skills/moza ~/.hermes/skills/moza
 ```
 
-Uninstall the Codex plugin:
-
-```bash
-codex plugin remove moza@arinyaho
-codex plugin marketplace remove arinyaho    # optional: also drop the marketplace source
-```
-
-Then trigger it in any session — e.g. "switch to my work account".
+Once installed, the agent invokes `moza` automatically when you mention identity-scoped work — e.g. "as my work account", "switch to personal".
 
 ## Bootstrap
 
@@ -104,31 +107,3 @@ Example config (`match` is a bare directory glob — the directory itself and ev
 ```
 
 A scope only covers a git worktree if the worktree's path is itself under the scope's glob — a worktree created in a sibling `/worktrees/` directory outside `*/ccp/chemcopilot` is NOT covered.
-
-## As an agent skill
-
-`moza` ships a SKILL.md that teaches AI agents (Claude Code, Hermes Agent) when and how to invoke the CLI on your behalf. The skill assumes the `moza` binary is already on `PATH` — install the CLI first (above), then add the skill:
-
-### Claude Code
-
-```
-/plugin marketplace add arinyaho/moza
-/plugin install moza@arinyaho
-```
-
-### Hermes Agent
-
-```bash
-# Install directly from GitHub
-hermes skills install arinyaho/moza/skills/moza
-
-# Or add the repo as a tap source, then install
-hermes skills tap add arinyaho/moza
-hermes skills install moza
-
-# Or manually
-git clone https://github.com/arinyaho/moza ~/.hermes/skills/_src/moza
-ln -s ~/.hermes/skills/_src/moza/skills/moza ~/.hermes/skills/moza
-```
-
-Once installed, the agent invokes `moza` automatically when you mention identity-scoped work ("as my work account", "switch to personal", etc.).
