@@ -1,0 +1,23 @@
+{
+  "name": "arinyaho",
+  "interface": {
+    "displayName": "moza"
+  },
+  "plugins": [
+    {
+      "name": "moza",
+      "source": {
+        "source": "local",
+        "path": "./plugins/moza"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
