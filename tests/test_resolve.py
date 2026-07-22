@@ -63,6 +63,40 @@ class TestExpandScope:
             "$MOZA_NO_SUCH_VAR/Projects/acme"
         )
 
+    @pytest.mark.parametrize("raw", [
+        "$MOZA_TEST_ROOT", "${MOZA_TEST_ROOT}",
+        "$MOZA_TEST_ROOT/Projects/acme", "${MOZA_TEST_ROOT}/Projects/acme",
+    ])
+    def test_leaves_a_set_but_empty_variable_literal(self, raw, monkeypatch):
+        """`export WORK_ROOT=` in a dotfile is the ordinary accident. zsh would
+        expand it away exactly like an unset one, so it fails closed the same
+        way: alone it would normalize to '' and cover every absolute path, and
+        as a prefix it would leave the far broader '/Projects/acme'."""
+        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        assert expand_scope(raw) == raw
+
+    @pytest.mark.parametrize("raw", ["${MOZA_TEST_ROOT}/acme", "${HOME}/Projects/acme"])
+    def test_expands_the_braced_form_when_the_value_is_non_empty(self, raw, monkeypatch):
+        monkeypatch.setenv("HOME", "/Users/me")
+        monkeypatch.setenv("MOZA_TEST_ROOT", "/srv/clients")
+        assert "$" not in expand_scope(raw)
+
+    def test_leaves_tilde_literal_when_home_is_empty(self, monkeypatch):
+        """`os.path.expanduser` has the same hole: an empty HOME turns
+        '~/Projects/acme' into '/Projects/acme'."""
+        monkeypatch.setenv("HOME", "")
+        assert expand_scope("~/Projects/acme") == "~/Projects/acme"
+        assert expand_scope("~") == "~"
+
+    def test_leaves_unrecognized_dollar_forms_untouched(self, monkeypatch):
+        """Only `$VAR` and `${VAR}` are substituted; nothing else becomes an
+        error, so scopes that work today keep working."""
+        monkeypatch.delenv("MOZA_NO_SUCH_VAR", raising=False)
+        assert expand_scope("*/Projects/$") == "*/Projects/$"
+        assert expand_scope("${MOZA_NO_SUCH_VAR:-/tmp}/acme") == (
+            "${MOZA_NO_SUCH_VAR:-/tmp}/acme"
+        )
+
 
 class TestResolveExpandedScopes:
     def test_tilde_scope_covers_the_home_directory(self, monkeypatch):
@@ -102,6 +136,46 @@ class TestResolveExpandedScopes:
         p = profiles(prof("work", "$MOZA_NO_SUCH_VAR/Projects/acme"))
         assert resolve_profile(p, "/Projects/acme") is None
         assert resolve_profile(p, "/Users/me/Projects/acme") is None
+
+    @pytest.mark.parametrize("raw", ["$MOZA_TEST_ROOT", "${MOZA_TEST_ROOT}"])
+    def test_empty_variable_alone_claims_nothing(self, raw, monkeypatch):
+        """Expanded away, this scope would normalize to '' and `_covers` would
+        match every absolute path — every directory on the machine would run as
+        `work`."""
+        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        p = profiles(prof("work", raw))
+        assert resolve_profile(p, "/Users/me/Projects/moza") is None
+        assert resolve_profile(p, "/tmp/scratch") is None
+        assert resolve_profile(p, "/") is None
+
+    @pytest.mark.parametrize("raw", [
+        "$MOZA_TEST_ROOT/Projects/acme", "${MOZA_TEST_ROOT}/Projects/acme",
+    ])
+    def test_empty_variable_prefix_does_not_widen_the_scope(self, raw, monkeypatch):
+        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        p = profiles(prof("work", raw))
+        assert resolve_profile(p, "/Projects/acme") is None
+        assert resolve_profile(p, "/Projects/acme/src") is None
+        assert resolve_profile(p, "/Users/me/Projects/acme") is None
+
+    def test_an_empty_variable_scope_does_not_steal_another_profiles_directory(
+        self, monkeypatch
+    ):
+        """The reported misroute: `work: ["$WORK_ROOT"]` with WORK_ROOT empty
+        answered `work` in a directory `personal` owns, and elsewhere."""
+        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        p = profiles(
+            prof("work", "$MOZA_TEST_ROOT"),
+            prof("personal", "*/Projects/moza"),
+        )
+        assert resolve_profile(p, "/Users/me/Projects/moza") == "personal"
+        assert resolve_profile(p, "/Users/me/elsewhere") is None
+
+    def test_empty_home_does_not_widen_a_tilde_scope(self, monkeypatch):
+        monkeypatch.setenv("HOME", "")
+        p = profiles(prof("work", "~/Projects/acme"))
+        assert resolve_profile(p, "/Projects/acme") is None
+        assert resolve_profile(p, "/Projects/acme/src") is None
 
     def test_specificity_is_scored_on_the_expanded_scope(self, monkeypatch):
         """Unexpanded, the shorter '~/Projects/acme' would lose to the longer but

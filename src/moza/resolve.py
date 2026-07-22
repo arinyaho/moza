@@ -14,8 +14,15 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 
 from moza.config import Profile
+
+# `$VAR` / `${VAR}`, with the same name characters `os.path.expandvars` accepts.
+# The braced form is tried first so `${VAR}` is not read as `$VAR` plus braces.
+# Anything else that starts with `$` (a bare `$`, `${VAR:-x}`, `$1`) matches
+# nothing here and is left exactly as written.
+_VAR_RE = re.compile(r"\$\{([A-Za-z0-9_]+)\}|\$([A-Za-z0-9_]+)")
 
 
 class AmbiguousScope(Exception):
@@ -42,6 +49,30 @@ def match_base(match: str) -> str:
     return base.rstrip("/")
 
 
+def _expand_vars(match: str) -> str:
+    """Substitute `$VAR` / `${VAR}` from the environment, except where the value
+    would be empty. `os.path.expandvars` cannot express that exception: it skips
+    an unset name but expands a set-but-empty one away, which is the same
+    widening by a different route (`WORK_ROOT=` in a dotfile, or
+    `WORK_ROOT="$SOMETHING_UNSET"` in a wrapper)."""
+
+    def sub(m: re.Match[str]) -> str:
+        value = os.environ.get(m.group(1) or m.group(2))
+        return value if value else m.group(0)
+
+    return _VAR_RE.sub(sub, match)
+
+
+def _expand_user(match: str) -> str:
+    """Expand a leading `~`, except where HOME is set but empty — `os.path
+    .expanduser` has the same hole as `expandvars` there, turning '~/Projects'
+    into '/Projects'. An absent HOME is not the same case: expanduser falls back
+    to the password database and gets a real home."""
+    if (match == "~" or match.startswith("~/")) and os.environ.get("HOME") == "":
+        return match
+    return os.path.expanduser(match)
+
+
 def expand_scope(match: str) -> str:
     """Expand `~` and `$VAR` in a scope, the way the shell expands the same text.
 
@@ -51,12 +82,18 @@ def expand_scope(match: str) -> str:
     cover a directory for ambient env and not for identity — a hard "no profile
     claims ..." at best, and the wrong identity if some broader scope catches it.
 
-    An undefined variable is left as written rather than expanded away: zsh would
-    turn '$UNSET/Projects' into the far broader '/Projects', and silently widening
-    a scope is how credentials get misrouted. Left literal, it simply matches
-    nothing.
+    A variable that is unset OR set to the empty string is left as written rather
+    than expanded away, and so is `~` under an empty HOME. This is a deliberate
+    divergence from zsh, which expands both to nothing: '$EMPTY/Projects' would
+    become the far broader '/Projects', and a scope that is nothing but
+    '$EMPTY' would normalize to '' and cover every absolute path. Silently
+    widening a scope is how credentials get misrouted. Left literal, the
+    reference simply matches nothing.
+
+    Only `$VAR` and `${VAR}` are recognized; any other `$`-form is left untouched
+    rather than rejected.
     """
-    return os.path.expandvars(os.path.expanduser(match))
+    return _expand_vars(_expand_user(match))
 
 
 def _covers(base: str, path: str) -> bool:

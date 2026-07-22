@@ -45,6 +45,20 @@ def test_render_leaves_tilde_and_vars_for_zsh_to_expand(scope, monkeypatch):
     assert "/Users/nobody-in-particular" not in out
 
 
+@pytest.mark.parametrize("scope", ["$MOZA_TEST_ROOT", "${MOZA_TEST_ROOT}/acme", "~/acme"])
+def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
+    # Identity resolution refuses to expand an empty reference (it would widen the
+    # scope); the generated script never expands anything at sync time, so an empty
+    # value in the sync-time environment leaves its output byte-for-byte unchanged.
+    out = render_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match=scope, env={"K": "v"})])})
+    monkeypatch.setenv("MOZA_TEST_ROOT", "")
+    monkeypatch.setenv("HOME", "")
+    assert render_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match=scope, env={"K": "v"})])}) == out
+    assert f'case "$PWD/" in {scope}/*)' in out
+
+
 def test_render_escapes_only_quote_and_backslash_keeps_dollar_and_backtick():
     profiles = {"p": Profile(name="p", project_env=[
         ProjectEnvScope(match="*/x", env={"Q": 'a"b\\c', "V": "$HOME/y", "B": "x`y"})])}

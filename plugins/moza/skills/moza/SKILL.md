@@ -81,6 +81,14 @@ $MOZA run -- gh pr list
 $MOZA run -- gcloud projects list
 ```
 
+**`run` is not purely directory-driven.** If `MOZA_PROFILE` is already set, it wins over the
+directory — and it very often is: a session launched from a terminal where the user ran
+`moza-use work` inherits it into every one of your commands, so `run` acts as `work` even in
+a directory pinned to something else. `$MOZA which` reports the conflict, but only as a
+warning on stderr, and it still exits 0. So when the identity matters, do not just check the
+exit status — read what `which` printed, or name the profile with `exec` and leave nothing
+to inherit.
+
 **2. `$MOZA exec` — when you must name the profile.**
 
 ```bash
