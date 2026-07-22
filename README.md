@@ -102,6 +102,8 @@ moza run -- gh pr list           # runs as whichever profile claims this directo
 
 A scope covers the directory itself and everything under it. Sibling directories that merely share a prefix are not covered — `*/Projects/acme` does not capture `acme-fork`. When two profiles claim a directory, the longer scope wins; when they are equally specific, `moza` refuses rather than guessing, since picking one would misroute credentials silently.
 
+`~` and `$VAR` are expanded, so `~/Projects/acme` and `$HOME/Projects/acme` both work. A variable that is not set is left as written, which matches nothing — the generated `project_env` shell would instead drop it and widen the scope, and quietly claiming more directories than intended is the wrong way to fail here.
+
 If a profile is already active in the shell (`MOZA_PROFILE`), it wins — an explicit `moza use` is a deliberate act and a directory default should not undo it. `moza which` prints a warning to stderr when the two disagree.
 
 Scopes live in your own config, never in a checked-out repository, so cloning a repository can never change which identity acts on your machine.

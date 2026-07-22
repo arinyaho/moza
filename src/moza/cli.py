@@ -994,8 +994,20 @@ def _resolve_cwd_profile(cfg: Config) -> str | None:
     An ambiguous directory only blocks the commands that would otherwise have to
     guess. With an override in hand there is nothing to guess, so the clash is
     reported on stderr and the activated profile is used.
+
+    A name returned from here is always a profile that exists. Directory scopes
+    come from the config, so only the override can name something else — a
+    renamed or deleted profile leaves a stale MOZA_PROFILE exported in shells
+    that are still open. Rejecting it here, rather than in each caller, keeps
+    `which` from printing a name its own consumers cannot use.
     """
     active = os.environ.get("MOZA_PROFILE")
+    if active and active not in cfg.profiles:
+        raise click.ClickException(
+            f"profile {active!r} is active in this shell but not found in the "
+            "config; it may have been renamed or removed. Run `moza unset` in "
+            "this shell, or activate an existing profile."
+        )
     try:
         from_dir = resolve_profile(cfg.profiles, _logical_cwd())
     except AmbiguousScope as exc:
@@ -1044,10 +1056,8 @@ def run_cmd(argv: tuple[str, ...]) -> None:
             f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
             "profile, or use `moza exec <profile> -- ...`."
         )
-    prof = cfg.profiles.get(name)
-    if not prof:
-        raise click.ClickException(f"profile {name!r} not found")
-    _run_as_profile(cfg, prof, argv)
+    # _resolve_cwd_profile only ever returns a profile that exists.
+    _run_as_profile(cfg, cfg.profiles[name], argv)
 
 
 @main.command("token")

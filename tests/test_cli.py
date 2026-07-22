@@ -1215,6 +1215,22 @@ def test_which_prefers_an_explicitly_activated_profile(runner, tmp_path, monkeyp
     assert result.stdout.strip() == "personal"
 
 
+def test_which_rejects_an_active_profile_absent_from_config(runner, tmp_path, monkeypatch):
+    """MOZA_PROFILE is an arbitrary string — a renamed or deleted profile leaves a
+    stale one exported. `which` feeds other commands, so a name that resolves to
+    nothing must fail here rather than downstream, and stdout must stay empty."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("MOZA_PROFILE", "deleted-profile")
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert "deleted-profile" in result.output
+    assert "not found" in result.output
+    assert result.stdout.strip() == ""
+
+
 def test_which_warns_when_active_profile_contradicts_the_directory(runner, tmp_path, monkeypatch):
     """The override is honoured, but silently acting against the directory's
     default is exactly the confusion this feature exists to remove."""

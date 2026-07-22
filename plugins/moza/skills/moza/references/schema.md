@@ -67,7 +67,20 @@ A scope covers the directory itself and everything under it; a sibling sharing a
 prefix is not covered (`*/Projects/acme` does not capture `acme-fork`). The
 longest matching scope wins, and equally specific scopes on different profiles
 are an error rather than a coin flip. An active `MOZA_PROFILE` overrides the
-directory, with a warning on stderr when the two disagree.
+directory, with a warning on stderr when the two disagree; if it names a profile
+the config does not have, the command fails instead of resolving to nothing.
+
+`~` and `$VAR` are expanded before matching, so `~/Projects/acme` and
+`$HOME/Projects/acme` are equivalent to the literal path. An **unset** variable is
+left literal and therefore matches nothing. This differs deliberately from the
+`project_env` shell, where zsh expands an unset variable to the empty string —
+there `$UNSET/Projects/acme` becomes `/Projects/acme`, a broader scope. For
+identity, failing closed beats silently claiming more directories.
+
+Must be a list of strings. A bare string is rejected rather than coerced: JSON
+has no way to tell a one-element list from a scalar, and silently accepting
+`"default_for": "*/Projects/acme"` would iterate it character by character, one
+of which is `*`.
 
 Distinct from `project_env`, which maps directories to environment *values*;
 `default_for` maps directories to *which identity you are*.
