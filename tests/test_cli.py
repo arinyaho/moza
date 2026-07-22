@@ -1116,6 +1116,357 @@ def test_token_notion_prints_api_token(runner, moza_cfg, mocker):
     assert "my-secret-notion-token" in result.output
 
 
+def _pinned_config(tmp_path, monkeypatch, **scopes):
+    """Write a config whose profiles claim directories via default_for."""
+    from moza.config import BackendConfig, Config, Profile, SecretNaming, save_config
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={n: Profile(name=n, default_for=list(g)) for n, g in scopes.items()},
+    ))
+
+
+def test_which_resolves_profile_from_cwd(runner, tmp_path, monkeypatch):
+    work = tmp_path / "Projects" / "acme" / "src"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "work"
+
+
+def test_which_resolves_through_a_symlinked_path_via_pwd(runner, tmp_path, monkeypatch):
+    """`os.getcwd()` resolves symlinks and the shell's `$PWD` does not, so a scope
+    the generated `case "$PWD/" in ...` matches must match here too — otherwise the
+    same directory has an ambient env from one profile and no identity at all."""
+    (tmp_path / "real" / "acme").mkdir(parents=True)
+    (tmp_path / "Projects").symlink_to(tmp_path / "real")
+    logical = tmp_path / "Projects" / "acme"
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(logical)
+    assert "/Projects/" not in os.getcwd()      # the physical path really differs
+    monkeypatch.setenv("PWD", str(logical))     # what the shell reports there
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "work"
+
+
+def test_which_ignores_a_pwd_naming_a_different_directory(runner, tmp_path, monkeypatch):
+    """`PWD` is inherited and goes stale in any subprocess that chdir'd. Trusting
+    it past `samefile` would hand out another project's credentials."""
+    here = tmp_path / "elsewhere"
+    here.mkdir()
+    claimed = tmp_path / "Projects" / "acme"
+    claimed.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(here)
+    monkeypatch.setenv("PWD", str(claimed))     # a real directory, but not this one
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert result.stdout.strip() == ""
+
+
+def test_which_falls_back_to_getcwd_when_pwd_is_unusable(runner, tmp_path, monkeypatch):
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(work)
+
+    monkeypatch.setenv("PWD", "/no/such/directory/anywhere")   # points nowhere
+    assert runner.invoke(main, ["which"]).stdout.strip() == "work"
+
+    monkeypatch.setenv("PWD", "not/absolute")                  # not a real cwd
+    assert runner.invoke(main, ["which"]).stdout.strip() == "work"
+
+    monkeypatch.delenv("PWD", raising=False)                   # unset entirely
+    assert runner.invoke(main, ["which"]).stdout.strip() == "work"
+
+
+def test_which_exits_nonzero_with_no_output_when_unclaimed(runner, tmp_path, monkeypatch):
+    """Callers substitute this into other commands, so an unresolved directory
+    must not print a profile name that would then be used."""
+    loose = tmp_path / "elsewhere"
+    loose.mkdir()
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(loose)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert result.stdout.strip() == ""
+
+
+def test_which_prefers_an_explicitly_activated_profile(runner, tmp_path, monkeypatch):
+    """Someone who ran `moza use` said what they wanted; a directory default
+    must not silently override a deliberate act."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"], personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "personal"
+
+
+def test_which_rejects_an_active_profile_absent_from_config(runner, tmp_path, monkeypatch):
+    """MOZA_PROFILE is an arbitrary string — a renamed or deleted profile leaves a
+    stale one exported. `which` feeds other commands, so a name that resolves to
+    nothing must fail here rather than downstream, and stdout must stay empty."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("MOZA_PROFILE", "deleted-profile")
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert "deleted-profile" in result.output
+    assert "not found" in result.output
+    assert result.stdout.strip() == ""
+
+
+def test_which_warns_when_active_profile_contradicts_the_directory(runner, tmp_path, monkeypatch):
+    """The override is honoured, but silently acting against the directory's
+    default is exactly the confusion this feature exists to remove."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"], personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"], catch_exceptions=False)
+    assert "work" in result.stderr
+    assert result.stdout.strip() == "personal"
+
+
+def test_which_refuses_to_guess_between_equally_specific_scopes(runner, tmp_path, monkeypatch):
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(shared)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert "claimed with equal specificity by: alpha, bravo" in result.output
+
+
+def test_which_prefers_an_activated_profile_over_an_ambiguous_directory(
+    runner, tmp_path, monkeypatch
+):
+    """An explicit `moza use` leaves nothing to guess, so a directory two
+    profiles claim equally must not abort the command."""
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"],
+                   personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(shared)
+    result = runner.invoke(main, ["which"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "personal"
+
+
+def test_which_warns_when_the_directory_is_ambiguous_under_an_override(
+    runner, tmp_path, monkeypatch
+):
+    """Proceeding under the override is right, but the clashing scopes are a
+    real misconfiguration the user should hear about."""
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"],
+                   personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(shared)
+    result = runner.invoke(main, ["which"], catch_exceptions=False)
+    assert "claimed by several profiles with equal specificity" in result.stderr
+    assert "using 'personal'" in result.stderr
+    assert result.stdout.strip() == "personal"
+
+
+def test_run_uses_the_activated_profile_when_the_directory_is_ambiguous(
+    runner, tmp_path, monkeypatch, mocker
+):
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"],
+                   personal=[])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(shared)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "printenv", "MOZA_PROFILE"])
+    assert result.exit_code == 0, result.output
+    assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "personal"
+
+
+def test_run_executes_under_the_directory_profile(runner, tmp_path, monkeypatch, mocker):
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(work)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "printenv", "MOZA_PROFILE"])
+    assert result.exit_code == 0, result.output
+    assert called.call_args.args[0] == ["printenv", "MOZA_PROFILE"]
+    assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "work"
+
+
+def test_run_honours_an_inherited_profile_over_the_directory(runner, tmp_path, monkeypatch, mocker):
+    """The child must run as the activated profile, not the directory's.
+
+    An agent session launched from a terminal where someone ran `moza-use work`
+    inherits MOZA_PROFILE into every command, so this is the routine case, not an
+    exotic one — SKILL.md says so and the whole override contract rests on it.
+    Pinned here because it was not: making `run` alone prefer the directory left
+    the entire suite green while inverting credential routing for those sessions.
+    """
+    pinned = tmp_path / "Projects" / "acme"
+    pinned.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"], personal=[])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(pinned)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code == 0, result.output
+    # The directory says 'work'; the activated profile must still win.
+    assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "personal"
+
+
+def test_run_lets_the_profile_override_the_ambient_environment(runner, tmp_path, monkeypatch, mocker):
+    """The profile must win the merge, not the shell it was launched from.
+
+    `_run_as_profile` builds the child env as {**os.environ, **bundle.env}. If
+    that order were ever reversed, a shell already carrying GH_TOKEN from an
+    earlier `moza use` would hand the child THAT token while the child still
+    reports the requested profile — a silent cross-identity leak, and the exact
+    failure this tool exists to prevent. Nothing pinned the order before.
+    """
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    # A stale value from some earlier activation, still exported in this shell.
+    monkeypatch.setenv("MOZA_EPHEMERAL_DIR", "/stale/from/an/earlier/shell")
+    monkeypatch.chdir(work)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code == 0, result.output
+    child_env = called.call_args.kwargs["env"]
+    # build_env sets MOZA_EPHEMERAL_DIR; the profile's value must displace the
+    # ambient one rather than the other way round.
+    assert child_env["MOZA_EPHEMERAL_DIR"] != "/stale/from/an/earlier/shell"
+    assert child_env["MOZA_PROFILE"] == "work"
+    # Ambient values the profile does NOT define still pass through.
+    assert child_env["TMPDIR"] == str(tmp_path)
+
+
+def test_run_rejects_a_stale_active_profile(runner, tmp_path, monkeypatch, mocker):
+    """`run` indexes cfg.profiles[name] directly, on the strength of the check in
+    _resolve_cwd_profile. If that check ever moves, this fails loudly here rather
+    than as a KeyError traceback."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("MOZA_PROFILE", "deleted-profile")
+    monkeypatch.chdir(work)
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code != 0
+    assert "deleted-profile" in result.output
+    assert "not found" in result.output
+    called.assert_not_called()
+
+
+def test_run_refuses_an_ambiguous_directory_without_an_override(runner, tmp_path, monkeypatch, mocker):
+    """Only the override variant was pinned; the refusal itself was not."""
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(shared)
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code != 0
+    assert "claimed with equal specificity by: alpha, bravo" in result.output
+    called.assert_not_called()
+
+
+def test_run_removes_ephemeral_files_after_child_exits(runner, tmp_path, monkeypatch, mocker):
+    """`run` spawns the child, so like `exec` it owns the plaintext credential
+    files build_env writes — and no shell EXIT trap sweeps them on this path."""
+    from moza.config import (BackendConfig, Config, Profile, SecretNaming,
+                             SlackWorkspace, save_config)
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(
+            name="work",
+            default_for=["*/Projects/acme"],
+            slack=[SlackWorkspace(workspace="team-a", team_id=None,
+                                  user_token_ref="ref://slack")],
+        )},
+    ))
+    mocker.patch("moza.cli.load_backend").return_value.get.return_value = b"xoxp-secret"
+    monkeypatch.chdir(work)
+
+    seen = {}
+
+    def fake_call(argv, env=None, **kw):
+        # The file must exist WHILE the child runs, or this test would pass
+        # vacuously against a build_env that wrote nothing.
+        seen["path"] = env["MOZA_SLACK_TOKENS"]
+        seen["body"] = Path(env["MOZA_SLACK_TOKENS"]).read_text()
+        return 0
+
+    mocker.patch("moza.cli.subprocess.call", side_effect=fake_call)
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code == 0, result.output
+    assert "xoxp-secret" in seen["body"]
+    assert not Path(seen["path"]).exists()
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
+def test_run_names_the_remedy_when_the_directory_is_unclaimed(runner, tmp_path, monkeypatch):
+    loose = tmp_path / "elsewhere"
+    loose.mkdir()
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(loose)
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code != 0
+    assert "default_for" in result.output or "moza exec" in result.output
+
+
 def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
     from click.testing import CliRunner
     from moza.cli import main
@@ -1134,3 +1485,51 @@ def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
     assert 'export AWS_PROFILE="work"' in ambient.read_text()
     assert str(ambient) in (tmp_path / ".zshenv").read_text()
     assert "work" in res.output
+
+
+def _env_sync_with_scope(monkeypatch, tmp_path, scope):
+    from click.testing import CliRunner
+    from moza.cli import main
+    from moza.config import (Config, BackendConfig, SecretNaming, Profile,
+                             ProjectEnvScope, save_config)
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    save_config(Config(schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(name="work", project_env=[
+            ProjectEnvScope(match=scope, env={"AWS_PROFILE": "work"})])}))
+    return CliRunner().invoke(main, ["env", "sync"])
+
+
+def test_env_sync_warns_when_a_scope_variable_is_unset_in_zshenv(monkeypatch, tmp_path):
+    # "$WORK_ROOT/$TEAM/*" is empty in ~/.zshenv (read before ~/.zshrc), so the
+    # emitted pattern collapses to "//*" and AWS_PROFILE would be exported
+    # everywhere.
+    #
+    # Two variables, deliberately: the message also echoes the scope verbatim, so
+    # asserting on "$WORK_ROOT" alone passes even if the rendered reference list is
+    # garbage. The contiguous "$WORK_ROOT, $TEAM" appears nowhere in the scope text
+    # ("$WORK_ROOT/$TEAM/*"), so only the list itself can put it on stderr.
+    res = _env_sync_with_scope(monkeypatch, tmp_path, "$WORK_ROOT/$TEAM/*")
+    assert res.exit_code == 0, res.output
+    assert "$WORK_ROOT, $TEAM" in res.stderr             # every offender, in order,
+    assert "$WORK_ROOT" in res.stderr                    # each rendered as a reference
+    assert "'work'" in res.stderr                        # names the profile
+    assert "~/.zshenv" in res.stderr and "~/.zshrc" in res.stderr    # says why
+    assert "literal path" in res.stderr                  # says what to do
+    assert "warning" in res.stderr
+    # warned, not rejected: the file is still written, unchanged by the check
+    ambient = (tmp_path / "config.json").parent / "ambient.zsh"
+    assert 'case "$PWD/" in $WORK_ROOT/$TEAM/*)' in ambient.read_text()
+    assert 'export AWS_PROFILE="work"' in ambient.read_text()
+
+
+@pytest.mark.parametrize("scope", ["~/Projects/acme", "$HOME/Projects/acme",
+                                   "*/work/arinyaho"])
+def test_env_sync_is_silent_for_scopes_that_survive_zshenv(monkeypatch, tmp_path, scope):
+    res = _env_sync_with_scope(monkeypatch, tmp_path, scope)
+    assert res.exit_code == 0, res.output
+    assert "warning" not in res.stderr and "~/.zshrc" not in res.stderr
+    ambient = (tmp_path / "config.json").parent / "ambient.zsh"
+    assert f'case "$PWD/" in {scope}/*)' in ambient.read_text()

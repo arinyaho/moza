@@ -54,6 +54,67 @@ All three are optional per profile.
 { "api_token_ref": "<backend-ref>" }
 ```
 
+### `default_for` (array)
+
+Directory globs this profile claims as its default identity. Resolved by `moza
+which` and `moza run`.
+
+```jsonc
+["*/Projects/acme*", "*/work/*"]
+```
+
+A scope covers the directory itself and everything under it; a sibling sharing a
+prefix is not covered (`*/Projects/acme` does not capture `acme-fork`). The
+longest matching scope wins, and equally specific scopes on different profiles
+are an error rather than a coin flip. An active `MOZA_PROFILE` overrides the
+directory, with a warning on stderr when the two disagree; if it names a profile
+the config does not have, the command fails instead of resolving to nothing.
+
+`~` and `$VAR` are expanded before matching, so `~/Projects/acme` and
+`$HOME/Projects/acme` are equivalent to the literal path. A variable that is
+**unset or set to the empty string** is left literal and therefore matches
+nothing, as is `~` when `HOME` is empty. This differs deliberately from the
+`project_env` shell, where zsh expands both to the empty string — there
+`$UNSET/Projects/acme` becomes `/Projects/acme`, which is *disjoint* from the
+intended tree (it silently covers an unrelated path and stops covering the one
+you meant), and a scope that is nothing but a reference — `$UNSET`, or
+`$UNSET/*`, which normalizes to the same base — collapses to the pattern `/*`
+and covers every absolute path. For identity, failing closed beats either
+outcome.
+
+Must be a list of strings. A bare string is rejected rather than coerced: JSON
+has no way to tell a one-element list from a scalar, and silently accepting
+`"default_for": "*/Projects/acme"` would iterate it character by character, one
+of which is `*`.
+
+Distinct from `project_env`, which maps directories to environment *values*;
+`default_for` maps directories to *which identity you are*.
+
+### `project_env` (array)
+
+Non-secret environment values applied ambiently by directory. `moza env sync`
+renders every profile's scopes into `~/.config/moza/ambient.zsh` as
+`case "$PWD/" in <base>/*)` blocks and wires `~/.zshenv` to source it.
+
+```jsonc
+[{ "match": "*/work/acme", "env": { "AWS_PROFILE": "work" } }]
+```
+
+`match` follows the same directory-glob rules as `default_for` (the directory
+itself and everything under it; a trailing `/*` or `/` is normalized away).
+Values are non-secret only — no secrets-backend refs.
+
+**Variable references in `match` are evaluated in `~/.zshenv`, which zsh reads
+before `~/.zshrc` and `~/.zprofile`.** Anything the user exports from their own
+dotfiles is therefore unset at match time and expands to nothing, with the
+consequences described under `default_for` above: `$WORK_ROOT/*` becomes `/*`
+and applies that scope's env — `AWS_PROFILE` included — in every directory. Only
+parameters that already exist that early (`$HOME`, `$USER`, `$TMPDIR` and the
+like, set by zsh itself or inherited from the login process) are safe; `~` is
+safe too, since tilde expansion consults the password database. `moza env sync`
+prints a warning naming the profile and scope for any other reference, and still
+writes the file — an existing working config is not broken by the check.
+
 ## Reserved backend secret name
 
 `moza-config-manifest` is reserved: `moza` stores a non-secret snapshot of

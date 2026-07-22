@@ -8,12 +8,80 @@ import tempfile
 from pathlib import Path
 
 from moza.config import Profile, config_path
+from moza.resolve import _VAR_RE, match_base
 
 HEADER = "# >>> moza ambient env (generated — do not edit; run `moza env sync`) >>>"
 FOOTER = "# <<< moza ambient env <<<"
 
 ZSHENV_BEGIN = "# >>> moza ambient (zshenv) >>>"
 ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
+
+# Parameters that already hold a NON-EMPTY value at the moment `~/.zshenv` is
+# read, so a scope referring to one expands as written.
+#
+# The rule: a reference is "expandable" only if zsh itself sets the parameter
+# before it reads any startup file, or EVERY process that can start a zsh which
+# reads `~/.zshenv` puts it in the inherited environment — login(1), launchd,
+# sshd, PAM. Not "some starter supplies it": `~/.zshenv` is read by every zsh,
+# including the non-interactive ones (scripts, `zsh -c`, launchd jobs, cron),
+# and a parameter missing from any of those collapses the scope there.
+#
+# That is why a terminal application does not count, and why a parent
+# interactive shell does not either. A child zsh does inherit what its parent
+# exported, but the top-level shell that reads `~/.zshenv` does not, and it is
+# the one the generated script has to be correct for. Everything a user exports
+# from `~/.zshrc` or `~/.zprofile` is unset here, because zsh reads `~/.zshenv`
+# FIRST.
+#
+# Keeping the list this narrow is also what makes the warning worth reading:
+# warn about `$HOME` too and users learn to ignore it.
+#
+# Being on this list suppresses the warning, so a wrong entry is a false
+# negative in the dangerous direction — the scope silently widens and can select
+# credentials everywhere. A missing entry only costs one extra warning, so
+# every entry must be verifiable by probing zsh, and anything doubtful stays off.
+# "Set but empty" counts as unset: an empty expansion collapses the scope
+# exactly like a missing parameter. That is why `TTY` is absent — zsh does set
+# it, but to the empty string whenever stdin is not a terminal, which is most
+# shells that read `~/.zshenv` (scripts, `zsh -c`, launchd-started processes).
+#
+# `ZDOTDIR` is absent for two independent reasons: zsh never sets it, and if the
+# user has set it, zsh reads `$ZDOTDIR/.zshenv` rather than the `~/.zshenv` that
+# `ensure_zshenv_sources` wires up — so this code is not running at all.
+# `HOSTNAME` is absent because zsh sets `HOST`, not `HOSTNAME`, and no login
+# path (login(1), launchd, sshd) puts `HOSTNAME` in the environment either.
+#
+# `~` is not on the list because it needs no value: tilde expansion consults the
+# password database, so it survives even an unset HOME.
+ZSHENV_AVAILABLE_VARS = frozenset({
+    # set by zsh before any startup file
+    "HOME", "PWD", "OLDPWD", "PATH", "SHLVL", "IFS",
+    "ZSH_NAME", "ZSH_VERSION", "UID", "EUID", "GID", "EGID", "PPID",
+    "HOST", "LOGNAME", "USERNAME", "OSTYPE", "MACHTYPE", "VENDOR",
+    # placed in the inherited environment by login / launchd / sshd
+    #
+    # TERM and LANG are deliberately absent: only a terminal application supplies
+    # them. A launchd-started zsh inherits USER/SHELL/TMPDIR/HOME/LOGNAME/PATH and
+    # neither of those two, and stock sshd forwards neither, so a `$TERM/...` or
+    # `$LANG/...` scope collapses to `/*` in exactly the non-interactive shells
+    # `~/.zshenv` is read by — the same reason TTY is off the list.
+    "USER", "SHELL", "TMPDIR",
+})
+
+
+def unexpandable_scope_vars(match: str) -> list[str]:
+    """Variable references in a `project_env` scope that will be empty in
+    `~/.zshenv`, in order of first appearance.
+
+    Only `$VAR` / `${VAR}` are recognized — the same forms identity resolution
+    expands (`moza.resolve`), so both sides agree on what counts as a reference.
+    """
+    seen: list[str] = []
+    for m in _VAR_RE.finditer(match):
+        name = m.group(1) or m.group(2)
+        if name not in ZSHENV_AVAILABLE_VARS and name not in seen:
+            seen.append(name)
+    return seen
 
 
 def _emit_value(value: str) -> str:
@@ -26,17 +94,14 @@ def _emit_value(value: str) -> str:
     return f'"{escaped}"'
 
 
-def _match_base(match: str) -> str:
-    """Directory-root glob: strip a trailing '/*' or '/' so the scope matches
-    the directory itself AND everything under it when tested against "$PWD/"."""
-    base = match
-    if base.endswith("/*"):
-        base = base[:-2]
-    return base.rstrip("/")
-
-
 def _scope_block(scope) -> str:
-    lines = [f'case "$PWD/" in {_match_base(scope.match)}/*)']
+    # match_base is shared with identity resolution so both agree on where a
+    # scope ENDS — the trailing '/*' and '/' normalization, and the '/'-separated
+    # descendant boundary. They deliberately disagree about expansion: zsh
+    # expands the pattern here at match time, while identity resolution leaves an
+    # unset or empty reference literal so it fails closed. unexpandable_scope_vars
+    # warns about the scopes where that difference bites.
+    lines = [f'case "$PWD/" in {match_base(scope.match)}/*)']
     for key in scope.env:  # preserve declared key order
         lines.append(f"  export {key}={_emit_value(scope.env[key])}")
     lines.append(";; esac")

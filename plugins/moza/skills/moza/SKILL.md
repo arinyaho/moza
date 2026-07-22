@@ -53,6 +53,8 @@ $MOZA list                          # see profiles
 $MOZA status                        # what is active in *this* shell
 $MOZA use <profile>                 # prints a `source …; rm …` loader; eval to activate (same call only)
 $MOZA exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer this
+$MOZA which                         # profile claimed by the current directory
+$MOZA run -- <cmd...>               # run cmd as that profile
 $MOZA token google --profile <p>    # mint a fresh google access token (for curl)
 ```
 
@@ -66,21 +68,41 @@ Nothing errors when this happens. The next command simply runs as whatever ident
 ambient shell already had. For a credential router that is the worst possible failure
 mode: you believe you are acting as `work-foo`, and you are acting as something else.
 
-Two patterns are safe. Use one of them; never rely on an `eval` from an earlier call.
+Three patterns are safe. Use one of them; never rely on an `eval` from an earlier call.
 
-**1. `moza exec` — preferred.** It carries the identity per invocation, so there is no earlier
-`eval` left to expire. It layers the profile *over* the ambient env rather than replacing it,
-though: for a service the profile does not define — a profile with no `aws` block still inherits
-an ambient `AWS_ACCESS_KEY_ID` — the ambient credential still wins, so confirm with the
-service's own identity check below.
+**1. `$MOZA run` — preferred when the project pins its own identity.**
+
+If the user has given profiles `default_for` scopes, the directory already knows who to
+be, and you never have to name a profile:
+
+```bash
+$MOZA which                       # confirm, if the identity matters
+$MOZA run -- gh pr list
+$MOZA run -- gcloud projects list
+```
+
+**`run` is not purely directory-driven.** If `MOZA_PROFILE` is already set, it wins over the
+directory — and it very often is: a session launched from a terminal where the user ran
+`moza-use work` inherits it into every one of your commands, so `run` acts as `work` even in
+a directory pinned to something else. `$MOZA which` reports the conflict, but only as a
+warning on stderr, and it still exits 0. So when the identity matters, do not just check the
+exit status — read what `which` printed, or name the profile with `exec` and leave nothing
+to inherit.
+
+**2. `$MOZA exec` — when you must name the profile.**
 
 ```bash
 $MOZA exec work-foo -- gh pr list
-$MOZA exec work-foo -- gcloud projects list
 $MOZA exec work-foo -- aws sts get-caller-identity
 ```
 
-**2. Single-call `eval` — for a sequence that must share one shell.**
+Both carry the identity per invocation, so there is no earlier `eval` left to expire. Both
+layer the profile *over* the ambient env rather than replacing it, though: for a service the
+profile does not define — a profile with no `aws` block still inherits an ambient
+`AWS_ACCESS_KEY_ID` — the ambient credential still wins, so confirm with the service's own
+identity check below.
+
+**3. Single-call `eval` — for a sequence that must share one shell.**
 
 Every line below must be in **one** command invocation:
 
@@ -99,8 +121,8 @@ expect — a bare `gh api user` succeeds under *any* valid token, so exit status
 nothing:
 
 ```bash
-[ "$($MOZA exec work-foo -- gh api user -q .login)" = "expected-login" ] \
-  && $MOZA exec work-foo -- gh pr merge 123
+[ "$($MOZA run -- gh api user -q .login)" = "expected-login" ] \
+  && $MOZA run -- gh pr merge 123
 ```
 
 For Gmail/Calendar/Drive (no helper in v1 — use curl). Pass `--profile` explicitly so the

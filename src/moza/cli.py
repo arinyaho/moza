@@ -10,7 +10,12 @@ from pathlib import Path
 
 import click
 
-from moza.ambient import AmbientParseError, ensure_zshenv_sources, write_ambient
+from moza.ambient import (
+    AmbientParseError,
+    ensure_zshenv_sources,
+    unexpandable_scope_vars,
+    write_ambient,
+)
 from moza.backends import load_backend
 from moza.ephemeral import EphemeralStore
 from moza.config import (
@@ -32,6 +37,7 @@ from moza.config import (
 from moza.env import build_env
 from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from moza.oauth import exchange_refresh_token, google_installed_app_flow
+from moza.resolve import AmbiguousScope, resolve_profile
 from moza.secret_naming import render_name
 from moza.shell import emit_unset, emit_use
 
@@ -888,12 +894,45 @@ def env_group() -> None:
     """Manage ambient per-project env (non-interactive zsh only)."""
 
 
+def _warn_unexpandable_scopes(profiles: dict[str, Profile]) -> None:
+    """Warn about `project_env` scopes whose variables are unset where they run.
+
+    The generated script is sourced from `~/.zshenv`, which zsh reads BEFORE
+    `~/.zshrc` and `~/.zprofile` — so a variable the user exports from their own
+    dotfiles is unset by construction at match time. zsh expands it to nothing,
+    and `case "$PWD/" in $WORK_ROOT/*)` becomes `/*`, which matches every
+    absolute path: every shell would get that scope's env, including the
+    credential-selecting kind (`AWS_PROFILE`).
+
+    Warn and continue rather than reject: a config that works today (because the
+    variable happens to be exported early enough, or because the scope's other
+    segments make the collapse harmless) must not start failing on upgrade.
+    """
+    for name in sorted(profiles):
+        for scope in profiles[name].project_env:
+            missing = unexpandable_scope_vars(scope.match)
+            if not missing:
+                continue
+            refs = ", ".join(f"${v}" for v in missing)
+            click.echo(
+                f"warning: profile {name!r} scope {scope.match!r} refers to {refs}, "
+                "which will be unset where it is evaluated: the generated script is "
+                "sourced from ~/.zshenv, and zsh reads that BEFORE ~/.zshrc and "
+                "~/.zprofile, so variables defined there do not exist yet. zsh "
+                "expands the reference to nothing, which can widen the scope to "
+                "directories you did not intend. Write a literal path instead, or "
+                "'~', which expands correctly this early.",
+                err=True,
+            )
+
+
 @env_group.command("sync")
 def env_sync_cmd() -> None:
     """Generate ~/.config/moza/ambient.zsh from every profile's project_env and
     ensure ~/.zshenv sources it. Non-secret only. Idempotent. The generated
     script is `zsh -n`-validated before anything is written or wired."""
     cfg = _require_config()
+    _warn_unexpandable_scopes(cfg.profiles)
     try:
         ambient = write_ambient(cfg.profiles)          # renders + parse-gates + writes
     except AmbientParseError as exc:
@@ -921,22 +960,20 @@ def unset_cmd() -> None:
     sys.stdout.write(emit_unset())
 
 
-@main.command("exec", context_settings={"ignore_unknown_options": True})
-@click.argument("profile_name")
-@click.argument("argv", nargs=-1, required=True)
-def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
-    cfg = _require_config()
-    prof = cfg.profiles.get(profile_name)
-    if not prof:
-        raise click.ClickException(f"profile {profile_name!r} not found")
+def _run_as_profile(cfg: Config, prof: Profile, argv: tuple[str, ...]) -> None:
+    """Run argv with the profile's env, then exit with the child's status.
+
+    Shared by `exec` and `run` so the cleanup below cannot drift between them.
+
+    Whichever command spawns the child owns its whole lifetime, so it also owns
+    the plaintext credential files build_env drops in $TMPDIR/moza (ADC blob with
+    the client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
+    nothing downstream needs them to survive this process — and no shell EXIT trap
+    fires for these paths, since MOZA_PROFILE is only ever set in the child's
+    environment. Clean up unconditionally: normal exit, non-zero exit, child
+    killed by a signal, Ctrl-C, or an exception.
+    """
     backend = load_backend(cfg.secrets_backend)
-    # `exec` owns the child's whole lifetime, so it also owns the plaintext
-    # credential files build_env drops in $TMPDIR/moza (ADC blob with the
-    # client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
-    # nothing downstream needs them to survive this process — and no shell EXIT
-    # trap fires for an exec-only workflow, since MOZA_PROFILE is only ever set
-    # in the child's environment. Clean up unconditionally: normal exit,
-    # non-zero exit, child killed by a signal, Ctrl-C, or an exception.
     store = EphemeralStore()
     try:
         bundle = build_env(prof, backend, pid=store.pid)
@@ -945,6 +982,121 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
     finally:
         store.cleanup()
     sys.exit(rc)
+
+
+@main.command("exec", context_settings={"ignore_unknown_options": True})
+@click.argument("profile_name")
+@click.argument("argv", nargs=-1, required=True)
+def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    _run_as_profile(cfg, prof, argv)
+
+
+def _logical_cwd() -> str:
+    """The working directory as the shell names it: `$PWD` when it is honest.
+
+    `os.getcwd()` resolves symlinks; the shell's `$PWD` does not. Standing in a
+    directory reached through a symlink — `/tmp` -> `/private/tmp`, a relocated
+    home, a projects tree on an external volume — the two disagree, and a scope
+    like '*/Projects/acme' that the generated `case "$PWD/" in ...` matches would
+    not match the physical path. Preferring `$PWD` keeps identity resolution
+    answering about the same directory ambient env answers about.
+
+    `$PWD` is trusted only after `os.path.samefile` confirms it is the directory we
+    are actually in: it is inherited across `cd`-less subprocesses and can be stale,
+    unset, or a lie, and a stale value would resolve to some other project's
+    credentials. Any doubt falls back to the physical path.
+    """
+    physical = os.getcwd()
+    pwd = os.environ.get("PWD")
+    if pwd and os.path.isabs(pwd) and pwd != physical:
+        try:
+            if os.path.samefile(pwd, physical):
+                return pwd
+        except OSError:
+            pass
+    return physical
+
+
+def _resolve_cwd_profile(cfg: Config) -> str | None:
+    """Profile claimed by the current directory, honouring an explicit override.
+
+    An activated MOZA_PROFILE wins: someone ran `moza use` on purpose and a
+    directory default must not quietly undo that. The disagreement is still
+    reported, because acting against the directory's default without noticing is
+    the confusion this resolution exists to remove.
+
+    An ambiguous directory only blocks the commands that would otherwise have to
+    guess. With an override in hand there is nothing to guess, so the clash is
+    reported on stderr and the activated profile is used.
+
+    A name returned from here is always a profile that exists. Directory scopes
+    come from the config, so only the override can name something else — a
+    renamed or deleted profile leaves a stale MOZA_PROFILE exported in shells
+    that are still open. Rejecting it here, rather than in each caller, keeps
+    `which` from printing a name its own consumers cannot use.
+    """
+    active = os.environ.get("MOZA_PROFILE")
+    if active and active not in cfg.profiles:
+        raise click.ClickException(
+            f"profile {active!r} is active in this shell but not found in the "
+            "config; it may have been renamed or removed. Clear it with "
+            "`moza-unset` (bare `moza unset` only prints the commands — it "
+            "cannot change the calling shell), or activate an existing profile."
+        )
+    try:
+        from_dir = resolve_profile(cfg.profiles, _logical_cwd())
+    except AmbiguousScope as exc:
+        if not active:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"warning: this directory is claimed by several profiles with equal "
+            f"specificity, but {active!r} is active in this shell; using {active!r}",
+            err=True,
+        )
+        return active
+
+    if active:
+        if from_dir and from_dir != active:
+            click.echo(
+                f"warning: this directory defaults to {from_dir!r}, but "
+                f"{active!r} is active in this shell; using {active!r}",
+                err=True,
+            )
+        return active
+    return from_dir
+
+
+@main.command("which")
+def which_cmd() -> None:
+    """Print the profile for the current directory, or exit non-zero."""
+    name = _resolve_cwd_profile(_require_config())
+    if not name:
+        # Deliberately silent on stdout: callers substitute this into other
+        # commands, so printing anything here would be taken for a profile name.
+        raise click.ClickException(
+            f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
+            "profile, or name one explicitly."
+        )
+    click.echo(name)
+
+
+@main.command("run", context_settings={"ignore_unknown_options": True})
+@click.argument("argv", nargs=-1, required=True)
+def run_cmd(argv: tuple[str, ...]) -> None:
+    """Run a command as the profile claimed by the current directory."""
+    cfg = _require_config()
+    name = _resolve_cwd_profile(cfg)
+    if not name:
+        raise click.ClickException(
+            f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
+            "profile, or use `moza exec <profile> -- ...`."
+        )
+    # _resolve_cwd_profile only ever returns a profile that exists.
+    _run_as_profile(cfg, cfg.profiles[name], argv)
 
 
 @main.command("token")

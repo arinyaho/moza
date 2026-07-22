@@ -84,6 +84,34 @@ moza login personal --service slack --workspace team-a
 
 See `skills/moza/references/` for full docs.
 
+## Project-pinned identity
+
+A profile can claim directories, so work in those directories runs as the right identity without anyone naming it:
+
+```json
+"profiles": {
+  "work":     { "default_for": ["*/Projects/acme*"] },
+  "personal": { "default_for": ["*/Projects/moza", "*/Projects/sayu"] }
+}
+```
+
+```bash
+moza which                       # → work
+moza run -- gh pr list           # runs as whichever profile claims this directory
+```
+
+A scope covers the directory itself and everything under it. Sibling directories that merely share a prefix are not covered — `*/Projects/acme` does not capture `acme-fork`. When two profiles claim a directory, the longer scope wins; when they are equally specific, `moza` refuses rather than guessing, since picking one would misroute credentials silently.
+
+`~` and `$VAR` are expanded, so `~/Projects/acme` and `$HOME/Projects/acme` both work. A variable that is not set — or is set to the empty string — is left as written, which matches nothing; the same goes for `~` under an empty `HOME`. The generated `project_env` shell would instead drop it and widen the scope, and quietly claiming more directories than intended is the wrong way to fail here.
+
+If a profile is already active in the shell (`MOZA_PROFILE`), it wins — an explicit `moza use` is a deliberate act and a directory default should not undo it. `moza which` prints a warning to stderr when the two disagree.
+
+Scopes live in your own config. Nothing in a checked-out repository can contribute a scope, name a profile, or reach an identity you have not already granted to some directory.
+
+A cloned directory is still matched like any other, though: `*` spans `/`, the same as in the shell patterns these scopes compile to, so a scope of `*/work/*` claims a `work` directory at any depth — including one inside a repository you just cloned. `git clone` names the target after the remote by default, so this is reachable by accident, and it turns a directory that would otherwise fail closed into one that runs under a real identity. Anchor scopes at `~` or a literal root rather than a leading `*` if that matters to you.
+
+Because resolution reads the filesystem on every call and keeps no state, it works the same in a long-lived terminal and in an AI agent that starts a fresh shell for every command.
+
 ## Ambient per-project env
 
 Some env vars (e.g. `AWS_PROFILE`) are handy set automatically just by `cd`-ing into a project directory, without running `moza use`. Configure them under a profile's `project_env`, then materialize them:
@@ -105,5 +133,11 @@ Example config (`match` is a bare directory glob — the directory itself and ev
   }
 }
 ```
+
+### Variables in a `match` scope
+
+The generated script is sourced from `~/.zshenv`, and zsh reads `~/.zshenv` **before** `~/.zshrc` and `~/.zprofile`. A variable you export from your own dotfiles is therefore unset at the moment the scope is matched, and zsh expands it to nothing: `{"match": "$WORK_ROOT/*"}` becomes the pattern `/*`, which matches every absolute path, so that scope's env — `AWS_PROFILE` and all — is applied in every directory. A reference in the middle of a path is not broader but wrong in a different way: `$WORK_ROOT/acme` becomes `/acme`, disjoint from the tree you meant.
+
+Only parameters that already have a value that early are safe: the ones zsh sets itself (`$HOME`, `$PWD`, `$PATH`, `$UID`, …) and the ones the login process puts in the environment zsh inherits (`$USER`, `$SHELL`, `$TMPDIR`, …). `~` is safe too — tilde expansion consults the password database and needs no variable. For anything else, write a literal path. `moza env sync` warns on stderr, naming the profile and the scope, and still writes the file, so a config that works today keeps working.
 
 A scope only covers a git worktree if the worktree's path is itself under the scope's glob — a worktree created in a sibling `/worktrees/` directory outside `*/work/arinyaho` is NOT covered.

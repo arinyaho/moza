@@ -91,6 +91,10 @@ class Profile:
     atlassian: AtlassianService | None = None
     notion: NotionService | None = None
     project_env: list[ProjectEnvScope] = field(default_factory=list)
+    # Directory globs this profile claims as its default identity. Kept separate
+    # from project_env: that maps directories to environment values, this maps
+    # directories to *who you are*, and the two are set independently.
+    default_for: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -154,6 +158,7 @@ def _config_to_dict(cfg: Config) -> dict:
             "atlassian": asdict(prof.atlassian) if prof.atlassian else None,
             "notion": asdict(prof.notion) if prof.notion else None,
             "project_env": [asdict(s) for s in prof.project_env],
+            "default_for": list(prof.default_for),
         }
     return {
         "$schema_version": cfg.schema_version,
@@ -162,6 +167,29 @@ def _config_to_dict(cfg: Config) -> dict:
         "secret_naming": asdict(cfg.secret_naming),
         "profiles": profiles,
     }
+
+
+def _default_for_from_raw(profile_name: str, value: object) -> list[str]:
+    """Validate a profile's ``default_for`` instead of coercing it.
+
+    A bare string would otherwise be exploded into one glob per character by
+    ``list()``, and the resulting ``"*"`` element claims every directory on the
+    machine -- silently routing credentials to the wrong profile.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(
+            f"profile {profile_name!r}: default_for must be a list of directory glob "
+            f"strings (e.g. [\"*/Projects/acme\"]), got {type(value).__name__}: {value!r}"
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"profile {profile_name!r}: default_for entries must be directory glob "
+                f"strings, got {type(item).__name__}: {item!r}"
+            )
+    return list(value)
 
 
 def _config_from_dict(raw: dict) -> Config:
@@ -198,6 +226,7 @@ def _config_from_dict(raw: dict) -> Config:
             atlassian=atlassian,
             notion=notion,
             project_env=project_env,
+            default_for=_default_for_from_raw(name, p.get("default_for")),
         )
 
     return Config(

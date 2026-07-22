@@ -42,13 +42,36 @@ gcloud projects list
 The exports live in *this* shell only. A second terminal is unaffected, and a new shell
 starts with no profile.
 
+## Pin an identity to a project
+
+Give a profile the directories it owns, and work in those directories runs as that
+identity without naming it:
+
+```jsonc
+"profiles": {
+  "work":     { "default_for": ["*/Projects/acme*"] },
+  "personal": { "default_for": ["*/Projects/moza"] }
+}
+```
+
+```bash
+moza which                     # → work
+moza run -- gh pr list
+```
+
+Useful when several agent sessions run at once: each one is in its own project
+directory, so each gets its own identity with no coordination between them.
+
 ## Activate (AI agent)
 
 Agent harnesses run each command in a fresh shell, so an `eval` from an earlier tool call
-has already been discarded — silently. Prefer the stateless form:
+has already been discarded — silently. Prefer a stateless form:
 
 ```bash
-moza exec personal -- gh pr list
+moza run -- gh pr list                 # if the directory pins an identity
+moza exec personal -- gh pr list       # otherwise, name it
+
+# capture the token; never let it reach stdout on its own
 TOKEN=$(moza token google --profile personal) && curl -s -H "Authorization: Bearer $TOKEN" \
   'https://gmail.googleapis.com/gmail/v1/users/me/profile'
 ```
