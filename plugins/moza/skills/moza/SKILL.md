@@ -51,7 +51,7 @@ Use `$MOZA` instead of `moza` in all subsequent commands.
 ```
 $MOZA list                          # see profiles
 $MOZA status                        # what is active in *this* shell
-$MOZA use <profile>                 # prints `export ...`; eval to activate (same call only)
+$MOZA use <profile>                 # prints a `source …; rm …` loader; eval to activate (same call only)
 $MOZA exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer this
 $MOZA token google --profile <p>    # mint a fresh google access token (for curl)
 ```
