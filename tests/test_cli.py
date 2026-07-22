@@ -1438,18 +1438,25 @@ def _env_sync_with_scope(monkeypatch, tmp_path, scope):
 
 
 def test_env_sync_warns_when_a_scope_variable_is_unset_in_zshenv(monkeypatch, tmp_path):
-    # "$WORK_ROOT/*" is empty in ~/.zshenv (read before ~/.zshrc), so the emitted
-    # pattern collapses to "/*" and AWS_PROFILE would be exported everywhere.
-    res = _env_sync_with_scope(monkeypatch, tmp_path, "$WORK_ROOT/*")
+    # "$WORK_ROOT/$TEAM/*" is empty in ~/.zshenv (read before ~/.zshrc), so the
+    # emitted pattern collapses to "//*" and AWS_PROFILE would be exported
+    # everywhere.
+    #
+    # Two variables, deliberately: the message also echoes the scope verbatim, so
+    # asserting on "$WORK_ROOT" alone passes even if the rendered reference list is
+    # garbage. The contiguous "$WORK_ROOT, $TEAM" appears nowhere in the scope text
+    # ("$WORK_ROOT/$TEAM/*"), so only the list itself can put it on stderr.
+    res = _env_sync_with_scope(monkeypatch, tmp_path, "$WORK_ROOT/$TEAM/*")
     assert res.exit_code == 0, res.output
-    assert "$WORK_ROOT" in res.stderr                    # names the offending reference
+    assert "$WORK_ROOT, $TEAM" in res.stderr             # every offender, in order,
+    assert "$WORK_ROOT" in res.stderr                    # each rendered as a reference
     assert "'work'" in res.stderr                        # names the profile
     assert "~/.zshenv" in res.stderr and "~/.zshrc" in res.stderr    # says why
     assert "literal path" in res.stderr                  # says what to do
     assert "warning" in res.stderr
     # warned, not rejected: the file is still written, unchanged by the check
     ambient = (tmp_path / "config.json").parent / "ambient.zsh"
-    assert 'case "$PWD/" in $WORK_ROOT/*)' in ambient.read_text()
+    assert 'case "$PWD/" in $WORK_ROOT/$TEAM/*)' in ambient.read_text()
     assert 'export AWS_PROFILE="work"' in ambient.read_text()
 
 

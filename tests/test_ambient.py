@@ -69,6 +69,13 @@ def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
     ("$FOO/$FOO/x", ["FOO"]),                         # deduped
     ("$HOME/Projects/acme", []),                      # zsh sets HOME before .zshenv
     ("$TMPDIR/scratch", []),                          # inherited from the login process
+    ("$ZDOTDIR/work", ["ZDOTDIR"]),                   # zsh never sets it; and if the user
+                                                      # did, zsh reads $ZDOTDIR/.zshenv, not
+                                                      # the ~/.zshenv this code writes to
+    ("$HOSTNAME/x", ["HOSTNAME"]),                    # zsh sets HOST, not HOSTNAME
+    ("$HOST/x", []),                                  # ...and HOST really is set
+    ("$TTY/x", ["TTY"]),                              # set but EMPTY off a tty, which
+                                                      # collapses the scope just like unset
     ("~/Projects/acme", []),                          # tilde needs no variable
     ("/Users/nobody/Projects/acme", []),              # literal
     ("*/work/arinyaho", []),                          # plain glob

@@ -16,8 +16,8 @@ FOOTER = "# <<< moza ambient env <<<"
 ZSHENV_BEGIN = "# >>> moza ambient (zshenv) >>>"
 ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
 
-# Parameters that already hold a value at the moment `~/.zshenv` is read, so a
-# scope referring to one expands as written.
+# Parameters that already hold a NON-EMPTY value at the moment `~/.zshenv` is
+# read, so a scope referring to one expands as written.
 #
 # The rule: a reference is "expandable" only if zsh itself sets the parameter
 # before it reads any startup file, or the process that starts zsh (login(1),
@@ -27,15 +27,30 @@ ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
 # the list to these two sources is what makes the warning worth reading: warn
 # about `$HOME` too and users learn to ignore it.
 #
+# Being on this list suppresses the warning, so a wrong entry is a false
+# negative in the dangerous direction — the scope silently widens and can select
+# credentials everywhere. A missing entry only costs one extra warning, so
+# every entry must be verifiable by probing zsh, and anything doubtful stays off.
+# "Set but empty" counts as unset: an empty expansion collapses the scope
+# exactly like a missing parameter. That is why `TTY` is absent — zsh does set
+# it, but to the empty string whenever stdin is not a terminal, which is most
+# shells that read `~/.zshenv` (scripts, `zsh -c`, launchd-started processes).
+#
+# `ZDOTDIR` is absent for two independent reasons: zsh never sets it, and if the
+# user has set it, zsh reads `$ZDOTDIR/.zshenv` rather than the `~/.zshenv` that
+# `ensure_zshenv_sources` wires up — so this code is not running at all.
+# `HOSTNAME` is absent because zsh sets `HOST`, not `HOSTNAME`, and no login
+# path (login(1), launchd, sshd) puts `HOSTNAME` in the environment either.
+#
 # `~` is not on the list because it needs no value: tilde expansion consults the
 # password database, so it survives even an unset HOME.
 ZSHENV_AVAILABLE_VARS = frozenset({
     # set by zsh before any startup file
-    "HOME", "PWD", "OLDPWD", "PATH", "SHLVL", "IFS", "ZDOTDIR",
+    "HOME", "PWD", "OLDPWD", "PATH", "SHLVL", "IFS",
     "ZSH_NAME", "ZSH_VERSION", "UID", "EUID", "GID", "EGID", "PPID",
-    "HOST", "LOGNAME", "USERNAME", "TTY", "OSTYPE", "MACHTYPE", "VENDOR",
+    "HOST", "LOGNAME", "USERNAME", "OSTYPE", "MACHTYPE", "VENDOR",
     # placed in the inherited environment by login / launchd / sshd / the terminal
-    "USER", "SHELL", "TMPDIR", "TERM", "LANG", "HOSTNAME",
+    "USER", "SHELL", "TMPDIR", "TERM", "LANG",
 })
 
 
