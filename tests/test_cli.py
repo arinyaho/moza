@@ -1116,6 +1116,148 @@ def test_token_notion_prints_api_token(runner, moza_cfg, mocker):
     assert "my-secret-notion-token" in result.output
 
 
+def _pinned_config(tmp_path, monkeypatch, **scopes):
+    """Write a config whose profiles claim directories via default_for."""
+    from moza.config import BackendConfig, Config, Profile, SecretNaming, save_config
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={n: Profile(name=n, default_for=list(g)) for n, g in scopes.items()},
+    ))
+
+
+def test_which_resolves_profile_from_cwd(runner, tmp_path, monkeypatch):
+    work = tmp_path / "Projects" / "acme" / "src"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "work"
+
+
+def test_which_exits_nonzero_with_no_output_when_unclaimed(runner, tmp_path, monkeypatch):
+    """Callers substitute this into other commands, so an unresolved directory
+    must not print a profile name that would then be used."""
+    loose = tmp_path / "elsewhere"
+    loose.mkdir()
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(loose)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert result.stdout.strip() == ""
+
+
+def test_which_prefers_an_explicitly_activated_profile(runner, tmp_path, monkeypatch):
+    """Someone who ran `moza use` said what they wanted; a directory default
+    must not silently override a deliberate act."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"], personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "personal"
+
+
+def test_which_warns_when_active_profile_contradicts_the_directory(runner, tmp_path, monkeypatch):
+    """The override is honoured, but silently acting against the directory's
+    default is exactly the confusion this feature exists to remove."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"], personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(work)
+    result = runner.invoke(main, ["which"], catch_exceptions=False)
+    assert "work" in result.stderr
+    assert result.stdout.strip() == "personal"
+
+
+def test_which_refuses_to_guess_between_equally_specific_scopes(runner, tmp_path, monkeypatch):
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   a=["*/Projects/shared"], b=["*/Projects/shared"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(shared)
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert "a" in result.output and "b" in result.output
+
+
+def test_run_executes_under_the_directory_profile(runner, tmp_path, monkeypatch, mocker):
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(work)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "printenv", "MOZA_PROFILE"])
+    assert result.exit_code == 0, result.output
+    assert called.call_args.args[0] == ["printenv", "MOZA_PROFILE"]
+    assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "work"
+
+
+def test_run_removes_ephemeral_files_after_child_exits(runner, tmp_path, monkeypatch, mocker):
+    """`run` spawns the child, so like `exec` it owns the plaintext credential
+    files build_env writes — and no shell EXIT trap sweeps them on this path."""
+    from moza.config import (BackendConfig, Config, Profile, SecretNaming,
+                             SlackWorkspace, save_config)
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(
+            name="work",
+            default_for=["*/Projects/acme"],
+            slack=[SlackWorkspace(workspace="team-a", team_id=None,
+                                  user_token_ref="ref://slack")],
+        )},
+    ))
+    mocker.patch("moza.cli.load_backend").return_value.get.return_value = b"xoxp-secret"
+    monkeypatch.chdir(work)
+
+    seen = {}
+
+    def fake_call(argv, env=None, **kw):
+        # The file must exist WHILE the child runs, or this test would pass
+        # vacuously against a build_env that wrote nothing.
+        seen["path"] = env["MOZA_SLACK_TOKENS"]
+        seen["body"] = Path(env["MOZA_SLACK_TOKENS"]).read_text()
+        return 0
+
+    mocker.patch("moza.cli.subprocess.call", side_effect=fake_call)
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code == 0, result.output
+    assert "xoxp-secret" in seen["body"]
+    assert not Path(seen["path"]).exists()
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
+def test_run_names_the_remedy_when_the_directory_is_unclaimed(runner, tmp_path, monkeypatch):
+    loose = tmp_path / "elsewhere"
+    loose.mkdir()
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(loose)
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code != 0
+    assert "default_for" in result.output or "moza exec" in result.output
+
+
 def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
     from click.testing import CliRunner
     from moza.cli import main

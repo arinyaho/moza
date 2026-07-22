@@ -91,6 +91,10 @@ class Profile:
     atlassian: AtlassianService | None = None
     notion: NotionService | None = None
     project_env: list[ProjectEnvScope] = field(default_factory=list)
+    # Directory globs this profile claims as its default identity. Kept separate
+    # from project_env: that maps directories to environment values, this maps
+    # directories to *who you are*, and the two are set independently.
+    default_for: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -154,6 +158,7 @@ def _config_to_dict(cfg: Config) -> dict:
             "atlassian": asdict(prof.atlassian) if prof.atlassian else None,
             "notion": asdict(prof.notion) if prof.notion else None,
             "project_env": [asdict(s) for s in prof.project_env],
+            "default_for": list(prof.default_for),
         }
     return {
         "$schema_version": cfg.schema_version,
@@ -198,6 +203,7 @@ def _config_from_dict(raw: dict) -> Config:
             atlassian=atlassian,
             notion=notion,
             project_env=project_env,
+            default_for=list(p.get("default_for") or []),
         )
 
     return Config(

@@ -54,6 +54,24 @@ All three are optional per profile.
 { "api_token_ref": "<backend-ref>" }
 ```
 
+### `default_for` (array)
+
+Directory globs this profile claims as its default identity. Resolved by `moza
+which` and `moza run`.
+
+```jsonc
+["*/Projects/acme*", "*/work/*"]
+```
+
+A scope covers the directory itself and everything under it; a sibling sharing a
+prefix is not covered (`*/Projects/acme` does not capture `acme-fork`). The
+longest matching scope wins, and equally specific scopes on different profiles
+are an error rather than a coin flip. An active `MOZA_PROFILE` overrides the
+directory, with a warning on stderr when the two disagree.
+
+Distinct from `project_env`, which maps directories to environment *values*;
+`default_for` maps directories to *which identity you are*.
+
 ## Reserved backend secret name
 
 `moza-config-manifest` is reserved: `moza` stores a non-secret snapshot of

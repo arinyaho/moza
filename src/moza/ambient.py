@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from moza.config import Profile, config_path
+from moza.resolve import match_base
 
 HEADER = "# >>> moza ambient env (generated — do not edit; run `moza env sync`) >>>"
 FOOTER = "# <<< moza ambient env <<<"
@@ -26,17 +27,10 @@ def _emit_value(value: str) -> str:
     return f'"{escaped}"'
 
 
-def _match_base(match: str) -> str:
-    """Directory-root glob: strip a trailing '/*' or '/' so the scope matches
-    the directory itself AND everything under it when tested against "$PWD/"."""
-    base = match
-    if base.endswith("/*"):
-        base = base[:-2]
-    return base.rstrip("/")
-
-
 def _scope_block(scope) -> str:
-    lines = [f'case "$PWD/" in {_match_base(scope.match)}/*)']
+    # match_base is shared with identity resolution so that a scope covers the
+    # same directories whether it is deciding env vars or deciding who you are.
+    lines = [f'case "$PWD/" in {match_base(scope.match)}/*)']
     for key in scope.env:  # preserve declared key order
         lines.append(f"  export {key}={_emit_value(scope.env[key])}")
     lines.append(";; esac")

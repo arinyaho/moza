@@ -32,6 +32,7 @@ from moza.config import (
 from moza.env import build_env
 from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from moza.oauth import exchange_refresh_token, google_installed_app_flow
+from moza.resolve import AmbiguousScope, resolve_profile
 from moza.secret_naming import render_name
 from moza.shell import emit_unset, emit_use
 
@@ -921,22 +922,20 @@ def unset_cmd() -> None:
     sys.stdout.write(emit_unset())
 
 
-@main.command("exec", context_settings={"ignore_unknown_options": True})
-@click.argument("profile_name")
-@click.argument("argv", nargs=-1, required=True)
-def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
-    cfg = _require_config()
-    prof = cfg.profiles.get(profile_name)
-    if not prof:
-        raise click.ClickException(f"profile {profile_name!r} not found")
+def _run_as_profile(cfg: Config, prof: Profile, argv: tuple[str, ...]) -> None:
+    """Run argv with the profile's env, then exit with the child's status.
+
+    Shared by `exec` and `run` so the cleanup below cannot drift between them.
+
+    Whichever command spawns the child owns its whole lifetime, so it also owns
+    the plaintext credential files build_env drops in $TMPDIR/moza (ADC blob with
+    the client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
+    nothing downstream needs them to survive this process — and no shell EXIT trap
+    fires for these paths, since MOZA_PROFILE is only ever set in the child's
+    environment. Clean up unconditionally: normal exit, non-zero exit, child
+    killed by a signal, Ctrl-C, or an exception.
+    """
     backend = load_backend(cfg.secrets_backend)
-    # `exec` owns the child's whole lifetime, so it also owns the plaintext
-    # credential files build_env drops in $TMPDIR/moza (ADC blob with the
-    # client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
-    # nothing downstream needs them to survive this process — and no shell EXIT
-    # trap fires for an exec-only workflow, since MOZA_PROFILE is only ever set
-    # in the child's environment. Clean up unconditionally: normal exit,
-    # non-zero exit, child killed by a signal, Ctrl-C, or an exception.
     store = EphemeralStore()
     try:
         bundle = build_env(prof, backend, pid=store.pid)
@@ -945,6 +944,73 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
     finally:
         store.cleanup()
     sys.exit(rc)
+
+
+@main.command("exec", context_settings={"ignore_unknown_options": True})
+@click.argument("profile_name")
+@click.argument("argv", nargs=-1, required=True)
+def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
+    cfg = _require_config()
+    prof = cfg.profiles.get(profile_name)
+    if not prof:
+        raise click.ClickException(f"profile {profile_name!r} not found")
+    _run_as_profile(cfg, prof, argv)
+
+
+def _resolve_cwd_profile(cfg: Config) -> str | None:
+    """Profile claimed by the current directory, honouring an explicit override.
+
+    An activated MOZA_PROFILE wins: someone ran `moza use` on purpose and a
+    directory default must not quietly undo that. The disagreement is still
+    reported, because acting against the directory's default without noticing is
+    the confusion this resolution exists to remove.
+    """
+    try:
+        from_dir = resolve_profile(cfg.profiles, os.getcwd())
+    except AmbiguousScope as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    active = os.environ.get("MOZA_PROFILE")
+    if active:
+        if from_dir and from_dir != active:
+            click.echo(
+                f"warning: this directory defaults to {from_dir!r}, but "
+                f"{active!r} is active in this shell; using {active!r}",
+                err=True,
+            )
+        return active
+    return from_dir
+
+
+@main.command("which")
+def which_cmd() -> None:
+    """Print the profile for the current directory, or exit non-zero."""
+    name = _resolve_cwd_profile(_require_config())
+    if not name:
+        # Deliberately silent on stdout: callers substitute this into other
+        # commands, so printing anything here would be taken for a profile name.
+        raise click.ClickException(
+            f"no profile claims {os.getcwd()}. Add a default_for scope to a "
+            "profile, or name one explicitly."
+        )
+    click.echo(name)
+
+
+@main.command("run", context_settings={"ignore_unknown_options": True})
+@click.argument("argv", nargs=-1, required=True)
+def run_cmd(argv: tuple[str, ...]) -> None:
+    """Run a command as the profile claimed by the current directory."""
+    cfg = _require_config()
+    name = _resolve_cwd_profile(cfg)
+    if not name:
+        raise click.ClickException(
+            f"no profile claims {os.getcwd()}. Add a default_for scope to a "
+            "profile, or use `moza exec <profile> -- ...`."
+        )
+    prof = cfg.profiles.get(name)
+    if not prof:
+        raise click.ClickException(f"profile {name!r} not found")
+    _run_as_profile(cfg, prof, argv)
 
 
 @main.command("token")

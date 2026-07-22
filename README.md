@@ -84,6 +84,30 @@ moza login personal --service slack --workspace team-a
 
 See `skills/moza/references/` for full docs.
 
+## Project-pinned identity
+
+A profile can claim directories, so work in those directories runs as the right identity without anyone naming it:
+
+```json
+"profiles": {
+  "work":     { "default_for": ["*/Projects/acme*"] },
+  "personal": { "default_for": ["*/Projects/moza", "*/Projects/sayu"] }
+}
+```
+
+```bash
+moza which                       # → work
+moza run -- gh pr list           # runs as whichever profile claims this directory
+```
+
+A scope covers the directory itself and everything under it. Sibling directories that merely share a prefix are not covered — `*/Projects/acme` does not capture `acme-fork`. When two profiles claim a directory, the longer scope wins; when they are equally specific, `moza` refuses rather than guessing, since picking one would misroute credentials silently.
+
+If a profile is already active in the shell (`MOZA_PROFILE`), it wins — an explicit `moza use` is a deliberate act and a directory default should not undo it. `moza which` prints a warning to stderr when the two disagree.
+
+Scopes live in your own config, never in a checked-out repository, so cloning a repository can never change which identity acts on your machine.
+
+Because resolution reads the filesystem on every call and keeps no state, it works the same in a long-lived terminal and in an AI agent that starts a fresh shell for every command.
+
 ## Ambient per-project env
 
 Some env vars (e.g. `AWS_PROFILE`) are handy set automatically just by `cd`-ing into a project directory, without running `moza use`. Configure them under a profile's `project_env`, then materialize them:
