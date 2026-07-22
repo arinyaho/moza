@@ -108,6 +108,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 For Slack (multi-workspace per profile):
 
 ```bash
+eval "$($MOZA use work-foo)"      # same call: brings in MOZA_SLACK_TOKENS
 TOKEN=$(jq -r '."team-a"' "$MOZA_SLACK_TOKENS")
 curl -s -H "Authorization: Bearer $TOKEN" \
   'https://slack.com/api/conversations.list'
@@ -139,8 +140,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Notion-Version: 2022-06-28" \
 For AWS:
 
 ```bash
-aws s3 ls                          # uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE
-aws sts get-caller-identity        # verify active identity
+$MOZA exec work-foo -- aws s3 ls                     # uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE
+$MOZA exec work-foo -- aws sts get-caller-identity   # verify active identity
 ```
 
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_PROFILE`, and `AWS_DEFAULT_REGION` are exported by `moza use`.
@@ -148,7 +149,7 @@ aws sts get-caller-identity        # verify active identity
 For OCI:
 
 ```bash
-oci iam user get --user-id <ocid>  # uses OCI_CLI_PROFILE / OCI_CLI_CONFIG_FILE
+$MOZA exec work-foo -- oci iam user get --user-id <ocid>   # uses OCI_CLI_PROFILE / OCI_CLI_CONFIG_FILE
 ```
 
 `OCI_CLI_PROFILE` and `OCI_CLI_CONFIG_FILE` are exported by `moza use`.
