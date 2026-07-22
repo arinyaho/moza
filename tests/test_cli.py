@@ -1139,6 +1139,56 @@ def test_which_resolves_profile_from_cwd(runner, tmp_path, monkeypatch):
     assert result.output.strip() == "work"
 
 
+def test_which_resolves_through_a_symlinked_path_via_pwd(runner, tmp_path, monkeypatch):
+    """`os.getcwd()` resolves symlinks and the shell's `$PWD` does not, so a scope
+    the generated `case "$PWD/" in ...` matches must match here too — otherwise the
+    same directory has an ambient env from one profile and no identity at all."""
+    (tmp_path / "real" / "acme").mkdir(parents=True)
+    (tmp_path / "Projects").symlink_to(tmp_path / "real")
+    logical = tmp_path / "Projects" / "acme"
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(logical)
+    assert "/Projects/" not in os.getcwd()      # the physical path really differs
+    monkeypatch.setenv("PWD", str(logical))     # what the shell reports there
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "work"
+
+
+def test_which_ignores_a_pwd_naming_a_different_directory(runner, tmp_path, monkeypatch):
+    """`PWD` is inherited and goes stale in any subprocess that chdir'd. Trusting
+    it past `samefile` would hand out another project's credentials."""
+    here = tmp_path / "elsewhere"
+    here.mkdir()
+    claimed = tmp_path / "Projects" / "acme"
+    claimed.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(here)
+    monkeypatch.setenv("PWD", str(claimed))     # a real directory, but not this one
+    result = runner.invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert result.stdout.strip() == ""
+
+
+def test_which_falls_back_to_getcwd_when_pwd_is_unusable(runner, tmp_path, monkeypatch):
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(work)
+
+    monkeypatch.setenv("PWD", "/no/such/directory/anywhere")   # points nowhere
+    assert runner.invoke(main, ["which"]).stdout.strip() == "work"
+
+    monkeypatch.setenv("PWD", "not/absolute")                  # not a real cwd
+    assert runner.invoke(main, ["which"]).stdout.strip() == "work"
+
+    monkeypatch.delenv("PWD", raising=False)                   # unset entirely
+    assert runner.invoke(main, ["which"]).stdout.strip() == "work"
+
+
 def test_which_exits_nonzero_with_no_output_when_unclaimed(runner, tmp_path, monkeypatch):
     """Callers substitute this into other commands, so an unresolved directory
     must not print a profile name that would then be used."""

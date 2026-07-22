@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 
@@ -12,6 +13,7 @@ from moza.ambient import (
     write_ambient,
 )
 from moza.config import Profile, ProjectEnvScope
+from moza.resolve import resolve_profile
 
 
 def test_render_matches_root_and_subdirs():
@@ -30,6 +32,17 @@ def test_render_trailing_glob_is_normalized():
     profiles = {"p": Profile(name="p", project_env=[
         ProjectEnvScope(match="*/work/arinyaho/*", env={"K": "v"})])}
     assert 'case "$PWD/" in */work/arinyaho/*)' in render_ambient(profiles)
+
+
+@pytest.mark.parametrize("scope", ["~/Projects/acme", "$HOME/Projects/acme"])
+def test_render_leaves_tilde_and_vars_for_zsh_to_expand(scope, monkeypatch):
+    # The pattern is expanded by the shell at match time, so the generated file
+    # stays correct after HOME changes and carries no sync-time environment.
+    monkeypatch.setenv("HOME", "/Users/nobody-in-particular")
+    out = render_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match=scope, env={"K": "v"})])})
+    assert f'case "$PWD/" in {scope}/*)' in out
+    assert "/Users/nobody-in-particular" not in out
 
 
 def test_render_escapes_only_quote_and_backslash_keeps_dollar_and_backtick():
@@ -123,6 +136,27 @@ def test_behavioral_zshenv_sources_ambient(monkeypatch, tmp_path):
     out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "work"      # value applied via zshenv -> ambient.zsh
+
+
+@pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
+def test_behavioral_tilde_scope_agrees_with_identity_resolution(monkeypatch, tmp_path):
+    # The claim both sides are documented to keep: one scope string, one directory,
+    # the same answer from the generated zsh and from resolve_profile.
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    home = tmp_path / "home"
+    matchdir = home / "Projects" / "acme"
+    matchdir.mkdir(parents=True)
+    write_ambient({"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match="~/Projects/acme", env={"AWS_PROFILE": "work"})])})
+    script = f'cd "{matchdir}"; source "{ambient_path()}"; print -r -- "$AWS_PROFILE"'
+    out = subprocess.run(["zsh", "-fc", script], text=True, capture_output=True,
+                         env={**os.environ, "HOME": str(home)})
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "work"                  # zsh: the scope covers it
+
+    monkeypatch.setenv("HOME", str(home))
+    identity = {"p": Profile(name="p", default_for=["~/Projects/acme"])}
+    assert resolve_profile(identity, str(matchdir)) == "p"   # identity: likewise
 
 
 def test_write_ambient_leaves_no_tmp_files(monkeypatch, tmp_path):

@@ -957,6 +957,32 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
     _run_as_profile(cfg, prof, argv)
 
 
+def _logical_cwd() -> str:
+    """The working directory as the shell names it: `$PWD` when it is honest.
+
+    `os.getcwd()` resolves symlinks; the shell's `$PWD` does not. Standing in a
+    directory reached through a symlink — `/tmp` -> `/private/tmp`, a relocated
+    home, a projects tree on an external volume — the two disagree, and a scope
+    like '*/Projects/acme' that the generated `case "$PWD/" in ...` matches would
+    not match the physical path. Preferring `$PWD` keeps identity resolution
+    answering about the same directory ambient env answers about.
+
+    `$PWD` is trusted only after `os.path.samefile` confirms it is the directory we
+    are actually in: it is inherited across `cd`-less subprocesses and can be stale,
+    unset, or a lie, and a stale value would resolve to some other project's
+    credentials. Any doubt falls back to the physical path.
+    """
+    physical = os.getcwd()
+    pwd = os.environ.get("PWD")
+    if pwd and os.path.isabs(pwd) and pwd != physical:
+        try:
+            if os.path.samefile(pwd, physical):
+                return pwd
+        except OSError:
+            pass
+    return physical
+
+
 def _resolve_cwd_profile(cfg: Config) -> str | None:
     """Profile claimed by the current directory, honouring an explicit override.
 
@@ -971,7 +997,7 @@ def _resolve_cwd_profile(cfg: Config) -> str | None:
     """
     active = os.environ.get("MOZA_PROFILE")
     try:
-        from_dir = resolve_profile(cfg.profiles, os.getcwd())
+        from_dir = resolve_profile(cfg.profiles, _logical_cwd())
     except AmbiguousScope as exc:
         if not active:
             raise click.ClickException(str(exc)) from exc
@@ -1001,7 +1027,7 @@ def which_cmd() -> None:
         # Deliberately silent on stdout: callers substitute this into other
         # commands, so printing anything here would be taken for a profile name.
         raise click.ClickException(
-            f"no profile claims {os.getcwd()}. Add a default_for scope to a "
+            f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
             "profile, or name one explicitly."
         )
     click.echo(name)
@@ -1015,7 +1041,7 @@ def run_cmd(argv: tuple[str, ...]) -> None:
     name = _resolve_cwd_profile(cfg)
     if not name:
         raise click.ClickException(
-            f"no profile claims {os.getcwd()}. Add a default_for scope to a "
+            f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
             "profile, or use `moza exec <profile> -- ...`."
         )
     prof = cfg.profiles.get(name)
