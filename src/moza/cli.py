@@ -964,13 +964,24 @@ def _resolve_cwd_profile(cfg: Config) -> str | None:
     directory default must not quietly undo that. The disagreement is still
     reported, because acting against the directory's default without noticing is
     the confusion this resolution exists to remove.
+
+    An ambiguous directory only blocks the commands that would otherwise have to
+    guess. With an override in hand there is nothing to guess, so the clash is
+    reported on stderr and the activated profile is used.
     """
+    active = os.environ.get("MOZA_PROFILE")
     try:
         from_dir = resolve_profile(cfg.profiles, os.getcwd())
     except AmbiguousScope as exc:
-        raise click.ClickException(str(exc)) from exc
+        if not active:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"warning: this directory is claimed by several profiles with equal "
+            f"specificity, but {active!r} is active in this shell; using {active!r}",
+            err=True,
+        )
+        return active
 
-    active = os.environ.get("MOZA_PROFILE")
     if active:
         if from_dir and from_dir != active:
             click.echo(

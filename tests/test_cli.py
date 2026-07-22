@@ -1182,12 +1182,66 @@ def test_which_refuses_to_guess_between_equally_specific_scopes(runner, tmp_path
     shared = tmp_path / "Projects" / "shared"
     shared.mkdir(parents=True)
     _pinned_config(tmp_path, monkeypatch,
-                   a=["*/Projects/shared"], b=["*/Projects/shared"])
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"])
     monkeypatch.delenv("MOZA_PROFILE", raising=False)
     monkeypatch.chdir(shared)
     result = runner.invoke(main, ["which"])
     assert result.exit_code != 0
-    assert "a" in result.output and "b" in result.output
+    assert "claimed with equal specificity by: alpha, bravo" in result.output
+
+
+def test_which_prefers_an_activated_profile_over_an_ambiguous_directory(
+    runner, tmp_path, monkeypatch
+):
+    """An explicit `moza use` leaves nothing to guess, so a directory two
+    profiles claim equally must not abort the command."""
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"],
+                   personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(shared)
+    result = runner.invoke(main, ["which"], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "personal"
+
+
+def test_which_warns_when_the_directory_is_ambiguous_under_an_override(
+    runner, tmp_path, monkeypatch
+):
+    """Proceeding under the override is right, but the clashing scopes are a
+    real misconfiguration the user should hear about."""
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"],
+                   personal=[])
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(shared)
+    result = runner.invoke(main, ["which"], catch_exceptions=False)
+    assert "claimed by several profiles with equal specificity" in result.stderr
+    assert "using 'personal'" in result.stderr
+    assert result.stdout.strip() == "personal"
+
+
+def test_run_uses_the_activated_profile_when_the_directory_is_ambiguous(
+    runner, tmp_path, monkeypatch, mocker
+):
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"],
+                   personal=[])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(shared)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "printenv", "MOZA_PROFILE"])
+    assert result.exit_code == 0, result.output
+    assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "personal"
 
 
 def test_run_executes_under_the_directory_profile(runner, tmp_path, monkeypatch, mocker):
