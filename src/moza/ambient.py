@@ -20,12 +20,21 @@ ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
 # read, so a scope referring to one expands as written.
 #
 # The rule: a reference is "expandable" only if zsh itself sets the parameter
-# before it reads any startup file, or the process that starts zsh (login(1),
-# launchd, sshd, PAM, a terminal app, a parent shell) puts it in the environment
-# zsh inherits. Everything else — anything the user exports from `~/.zshrc` or
-# `~/.zprofile` — is unset here, because zsh reads `~/.zshenv` FIRST. Keeping
-# the list to these two sources is what makes the warning worth reading: warn
-# about `$HOME` too and users learn to ignore it.
+# before it reads any startup file, or EVERY process that can start a zsh which
+# reads `~/.zshenv` puts it in the inherited environment — login(1), launchd,
+# sshd, PAM. Not "some starter supplies it": `~/.zshenv` is read by every zsh,
+# including the non-interactive ones (scripts, `zsh -c`, launchd jobs, cron),
+# and a parameter missing from any of those collapses the scope there.
+#
+# That is why a terminal application does not count, and why a parent
+# interactive shell does not either. A child zsh does inherit what its parent
+# exported, but the top-level shell that reads `~/.zshenv` does not, and it is
+# the one the generated script has to be correct for. Everything a user exports
+# from `~/.zshrc` or `~/.zprofile` is unset here, because zsh reads `~/.zshenv`
+# FIRST.
+#
+# Keeping the list this narrow is also what makes the warning worth reading:
+# warn about `$HOME` too and users learn to ignore it.
 #
 # Being on this list suppresses the warning, so a wrong entry is a false
 # negative in the dangerous direction — the scope silently widens and can select
