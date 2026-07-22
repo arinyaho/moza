@@ -17,13 +17,15 @@ gcloud projects list       # uses your personal GCP
 TOKEN=$(moza token google) # mint a Gmail/Cal/Drive access token on demand
 ```
 
-A second shell can run `eval "$(moza use work)"` independently. No global state. No token files in your home directory.
+A second shell can run `eval "$(moza use work)"` independently — activation touches only that shell. Tokens live in a secrets backend rather than in a dotfile.
 
 ## Architecture
 
 - **Per-session env vars** activate `gcloud`, `gh`, etc.
-- **Ephemeral files** (mode 0600, `${TMPDIR}/moza/`) hold per-session ADC + Slack tokens, cleaned on shell exit.
+- **Ephemeral files** (mode 0600, `${TMPDIR}/moza/`) hold per-session ADC, SSH key and Slack tokens. `moza exec` and `moza run` delete theirs when the child exits; the ones `moza use` leaves for your shell are swept on a best-effort basis — see [SECURITY.md](SECURITY.md#lifetime-and-cleanup).
 - **Pluggable secrets backend**: GCP Secret Manager, OCI Vault, macOS Keychain, or keyring (Linux Secret Service / Windows Credential Locker — free, no cloud, requires a desktop session).
+
+[SECURITY.md](SECURITY.md) describes what is stored where, who can read it, and what `moza` deliberately does not protect — including that it does **not** hide credentials from an AI agent it hands them to.
 
 ## Install
 
