@@ -1043,8 +1043,9 @@ def _resolve_cwd_profile(cfg: Config) -> str | None:
     if active and active not in cfg.profiles:
         raise click.ClickException(
             f"profile {active!r} is active in this shell but not found in the "
-            "config; it may have been renamed or removed. Run `moza unset` in "
-            "this shell, or activate an existing profile."
+            "config; it may have been renamed or removed. Clear it with "
+            "`moza-unset` (bare `moza unset` only prints the commands — it "
+            "cannot change the calling shell), or activate an existing profile."
         )
     try:
         from_dir = resolve_profile(cfg.profiles, _logical_cwd())

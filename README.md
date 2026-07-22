@@ -106,7 +106,9 @@ A scope covers the directory itself and everything under it. Sibling directories
 
 If a profile is already active in the shell (`MOZA_PROFILE`), it wins — an explicit `moza use` is a deliberate act and a directory default should not undo it. `moza which` prints a warning to stderr when the two disagree.
 
-Scopes live in your own config, never in a checked-out repository, so cloning a repository can never change which identity acts on your machine.
+Scopes live in your own config. Nothing in a checked-out repository can contribute a scope, name a profile, or reach an identity you have not already granted to some directory.
+
+A cloned directory is still matched like any other, though: `*` spans `/`, the same as in the shell patterns these scopes compile to, so a scope of `*/work/*` claims a `work` directory at any depth — including one inside a repository you just cloned. `git clone` names the target after the remote by default, so this is reachable by accident, and it turns a directory that would otherwise fail closed into one that runs under a real identity. Anchor scopes at `~` or a literal root rather than a leading `*` if that matters to you.
 
 Because resolution reads the filesystem on every call and keeps no state, it works the same in a long-lived terminal and in an AI agent that starts a fresh shell for every command.
 
