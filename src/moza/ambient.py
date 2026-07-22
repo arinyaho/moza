@@ -8,13 +8,50 @@ import tempfile
 from pathlib import Path
 
 from moza.config import Profile, config_path
-from moza.resolve import match_base
+from moza.resolve import _VAR_RE, match_base
 
 HEADER = "# >>> moza ambient env (generated — do not edit; run `moza env sync`) >>>"
 FOOTER = "# <<< moza ambient env <<<"
 
 ZSHENV_BEGIN = "# >>> moza ambient (zshenv) >>>"
 ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
+
+# Parameters that already hold a value at the moment `~/.zshenv` is read, so a
+# scope referring to one expands as written.
+#
+# The rule: a reference is "expandable" only if zsh itself sets the parameter
+# before it reads any startup file, or the process that starts zsh (login(1),
+# launchd, sshd, PAM, a terminal app, a parent shell) puts it in the environment
+# zsh inherits. Everything else — anything the user exports from `~/.zshrc` or
+# `~/.zprofile` — is unset here, because zsh reads `~/.zshenv` FIRST. Keeping
+# the list to these two sources is what makes the warning worth reading: warn
+# about `$HOME` too and users learn to ignore it.
+#
+# `~` is not on the list because it needs no value: tilde expansion consults the
+# password database, so it survives even an unset HOME.
+ZSHENV_AVAILABLE_VARS = frozenset({
+    # set by zsh before any startup file
+    "HOME", "PWD", "OLDPWD", "PATH", "SHLVL", "IFS", "ZDOTDIR",
+    "ZSH_NAME", "ZSH_VERSION", "UID", "EUID", "GID", "EGID", "PPID",
+    "HOST", "LOGNAME", "USERNAME", "TTY", "OSTYPE", "MACHTYPE", "VENDOR",
+    # placed in the inherited environment by login / launchd / sshd / the terminal
+    "USER", "SHELL", "TMPDIR", "TERM", "LANG", "HOSTNAME",
+})
+
+
+def unexpandable_scope_vars(match: str) -> list[str]:
+    """Variable references in a `project_env` scope that will be empty in
+    `~/.zshenv`, in order of first appearance.
+
+    Only `$VAR` / `${VAR}` are recognized — the same forms identity resolution
+    expands (`moza.resolve`), so both sides agree on what counts as a reference.
+    """
+    seen: list[str] = []
+    for m in _VAR_RE.finditer(match):
+        name = m.group(1) or m.group(2)
+        if name not in ZSHENV_AVAILABLE_VARS and name not in seen:
+            seen.append(name)
+    return seen
 
 
 def _emit_value(value: str) -> str:

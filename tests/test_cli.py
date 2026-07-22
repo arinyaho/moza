@@ -1326,6 +1326,30 @@ def test_run_executes_under_the_directory_profile(runner, tmp_path, monkeypatch,
     assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "work"
 
 
+def test_run_honours_an_inherited_profile_over_the_directory(runner, tmp_path, monkeypatch, mocker):
+    """The child must run as the activated profile, not the directory's.
+
+    An agent session launched from a terminal where someone ran `moza-use work`
+    inherits MOZA_PROFILE into every command, so this is the routine case, not an
+    exotic one — SKILL.md says so and the whole override contract rests on it.
+    Pinned here because it was not: making `run` alone prefer the directory left
+    the entire suite green while inverting credential routing for those sessions.
+    """
+    pinned = tmp_path / "Projects" / "acme"
+    pinned.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"], personal=[])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("MOZA_PROFILE", "personal")
+    monkeypatch.chdir(pinned)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code == 0, result.output
+    # The directory says 'work'; the activated profile must still win.
+    assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "personal"
+
+
 def test_run_removes_ephemeral_files_after_child_exits(runner, tmp_path, monkeypatch, mocker):
     """`run` spawns the child, so like `exec` it owns the plaintext credential
     files build_env writes — and no shell EXIT trap sweeps them on this path."""
@@ -1396,3 +1420,44 @@ def test_env_sync_writes_ambient_and_wires_zshenv(monkeypatch, tmp_path):
     assert 'export AWS_PROFILE="work"' in ambient.read_text()
     assert str(ambient) in (tmp_path / ".zshenv").read_text()
     assert "work" in res.output
+
+
+def _env_sync_with_scope(monkeypatch, tmp_path, scope):
+    from click.testing import CliRunner
+    from moza.cli import main
+    from moza.config import (Config, BackendConfig, SecretNaming, Profile,
+                             ProjectEnvScope, save_config)
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    save_config(Config(schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(name="work", project_env=[
+            ProjectEnvScope(match=scope, env={"AWS_PROFILE": "work"})])}))
+    return CliRunner().invoke(main, ["env", "sync"])
+
+
+def test_env_sync_warns_when_a_scope_variable_is_unset_in_zshenv(monkeypatch, tmp_path):
+    # "$WORK_ROOT/*" is empty in ~/.zshenv (read before ~/.zshrc), so the emitted
+    # pattern collapses to "/*" and AWS_PROFILE would be exported everywhere.
+    res = _env_sync_with_scope(monkeypatch, tmp_path, "$WORK_ROOT/*")
+    assert res.exit_code == 0, res.output
+    assert "$WORK_ROOT" in res.stderr                    # names the offending reference
+    assert "'work'" in res.stderr                        # names the profile
+    assert "~/.zshenv" in res.stderr and "~/.zshrc" in res.stderr    # says why
+    assert "literal path" in res.stderr                  # says what to do
+    assert "warning" in res.stderr
+    # warned, not rejected: the file is still written, unchanged by the check
+    ambient = (tmp_path / "config.json").parent / "ambient.zsh"
+    assert 'case "$PWD/" in $WORK_ROOT/*)' in ambient.read_text()
+    assert 'export AWS_PROFILE="work"' in ambient.read_text()
+
+
+@pytest.mark.parametrize("scope", ["~/Projects/acme", "$HOME/Projects/acme",
+                                   "*/work/arinyaho"])
+def test_env_sync_is_silent_for_scopes_that_survive_zshenv(monkeypatch, tmp_path, scope):
+    res = _env_sync_with_scope(monkeypatch, tmp_path, scope)
+    assert res.exit_code == 0, res.output
+    assert "warning" not in res.stderr and "~/.zshrc" not in res.stderr
+    ambient = (tmp_path / "config.json").parent / "ambient.zsh"
+    assert f'case "$PWD/" in {scope}/*)' in ambient.read_text()

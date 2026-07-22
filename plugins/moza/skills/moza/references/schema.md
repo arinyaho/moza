@@ -75,9 +75,12 @@ the config does not have, the command fails instead of resolving to nothing.
 **unset or set to the empty string** is left literal and therefore matches
 nothing, as is `~` when `HOME` is empty. This differs deliberately from the
 `project_env` shell, where zsh expands both to the empty string — there
-`$UNSET/Projects/acme` becomes `/Projects/acme`, a broader scope, and a scope of
-just `$UNSET` covers everything. For identity, failing closed beats silently
-claiming more directories.
+`$UNSET/Projects/acme` becomes `/Projects/acme`, which is *disjoint* from the
+intended tree (it silently covers an unrelated path and stops covering the one
+you meant), and a scope that is nothing but a reference — `$UNSET`, or
+`$UNSET/*`, which normalizes to the same base — collapses to the pattern `/*`
+and covers every absolute path. For identity, failing closed beats either
+outcome.
 
 Must be a list of strings. A bare string is rejected rather than coerced: JSON
 has no way to tell a one-element list from a scalar, and silently accepting
@@ -86,6 +89,31 @@ of which is `*`.
 
 Distinct from `project_env`, which maps directories to environment *values*;
 `default_for` maps directories to *which identity you are*.
+
+### `project_env` (array)
+
+Non-secret environment values applied ambiently by directory. `moza env sync`
+renders every profile's scopes into `~/.config/moza/ambient.zsh` as
+`case "$PWD/" in <base>/*)` blocks and wires `~/.zshenv` to source it.
+
+```jsonc
+[{ "match": "*/work/acme", "env": { "AWS_PROFILE": "work" } }]
+```
+
+`match` follows the same directory-glob rules as `default_for` (the directory
+itself and everything under it; a trailing `/*` or `/` is normalized away).
+Values are non-secret only — no secrets-backend refs.
+
+**Variable references in `match` are evaluated in `~/.zshenv`, which zsh reads
+before `~/.zshrc` and `~/.zprofile`.** Anything the user exports from their own
+dotfiles is therefore unset at match time and expands to nothing, with the
+consequences described under `default_for` above: `$WORK_ROOT/*` becomes `/*`
+and applies that scope's env — `AWS_PROFILE` included — in every directory. Only
+parameters that already exist that early (`$HOME`, `$USER`, `$TMPDIR` and the
+like, set by zsh itself or inherited from the login process) are safe; `~` is
+safe too, since tilde expansion consults the password database. `moza env sync`
+prints a warning naming the profile and scope for any other reference, and still
+writes the file — an existing working config is not broken by the check.
 
 ## Reserved backend secret name
 

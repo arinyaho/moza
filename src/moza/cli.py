@@ -10,7 +10,12 @@ from pathlib import Path
 
 import click
 
-from moza.ambient import AmbientParseError, ensure_zshenv_sources, write_ambient
+from moza.ambient import (
+    AmbientParseError,
+    ensure_zshenv_sources,
+    unexpandable_scope_vars,
+    write_ambient,
+)
 from moza.backends import load_backend
 from moza.ephemeral import EphemeralStore
 from moza.config import (
@@ -889,12 +894,45 @@ def env_group() -> None:
     """Manage ambient per-project env (non-interactive zsh only)."""
 
 
+def _warn_unexpandable_scopes(profiles: dict[str, Profile]) -> None:
+    """Warn about `project_env` scopes whose variables are unset where they run.
+
+    The generated script is sourced from `~/.zshenv`, which zsh reads BEFORE
+    `~/.zshrc` and `~/.zprofile` — so a variable the user exports from their own
+    dotfiles is unset by construction at match time. zsh expands it to nothing,
+    and `case "$PWD/" in $WORK_ROOT/*)` becomes `/*`, which matches every
+    absolute path: every shell would get that scope's env, including the
+    credential-selecting kind (`AWS_PROFILE`).
+
+    Warn and continue rather than reject: a config that works today (because the
+    variable happens to be exported early enough, or because the scope's other
+    segments make the collapse harmless) must not start failing on upgrade.
+    """
+    for name in sorted(profiles):
+        for scope in profiles[name].project_env:
+            missing = unexpandable_scope_vars(scope.match)
+            if not missing:
+                continue
+            refs = ", ".join(f"${v}" for v in missing)
+            click.echo(
+                f"warning: profile {name!r} scope {scope.match!r} refers to {refs}, "
+                "which will be unset where it is evaluated: the generated script is "
+                "sourced from ~/.zshenv, and zsh reads that BEFORE ~/.zshrc and "
+                "~/.zprofile, so variables defined there do not exist yet. zsh "
+                "expands the reference to nothing, which can widen the scope to "
+                "directories you did not intend. Write a literal path instead, or "
+                "'~', which expands correctly this early.",
+                err=True,
+            )
+
+
 @env_group.command("sync")
 def env_sync_cmd() -> None:
     """Generate ~/.config/moza/ambient.zsh from every profile's project_env and
     ensure ~/.zshenv sources it. Non-secret only. Idempotent. The generated
     script is `zsh -n`-validated before anything is written or wired."""
     cfg = _require_config()
+    _warn_unexpandable_scopes(cfg.profiles)
     try:
         ambient = write_ambient(cfg.profiles)          # renders + parse-gates + writes
     except AmbientParseError as exc:

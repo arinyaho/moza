@@ -5,15 +5,18 @@ import subprocess
 import pytest
 
 from moza.ambient import (
+    FOOTER,
+    HEADER,
     AmbientParseError,
     ambient_path,
     assert_parses,
     ensure_zshenv_sources,
     render_ambient,
+    unexpandable_scope_vars,
     write_ambient,
 )
 from moza.config import Profile, ProjectEnvScope
-from moza.resolve import resolve_profile
+from moza.resolve import match_base, resolve_profile
 
 
 def test_render_matches_root_and_subdirs():
@@ -57,6 +60,37 @@ def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
     assert render_ambient({"p": Profile(name="p", project_env=[
         ProjectEnvScope(match=scope, env={"K": "v"})])}) == out
     assert f'case "$PWD/" in {scope}/*)' in out
+
+
+@pytest.mark.parametrize("scope,expected", [
+    ("$WORK_ROOT/*", ["WORK_ROOT"]),                  # collapses to the pattern "/*"
+    ("${WORK_ROOT}/acme", ["WORK_ROOT"]),             # braced form counts too
+    ("$FOO/$BAR/x", ["FOO", "BAR"]),                  # every offender, in order
+    ("$FOO/$FOO/x", ["FOO"]),                         # deduped
+    ("$HOME/Projects/acme", []),                      # zsh sets HOME before .zshenv
+    ("$TMPDIR/scratch", []),                          # inherited from the login process
+    ("~/Projects/acme", []),                          # tilde needs no variable
+    ("/Users/nobody/Projects/acme", []),              # literal
+    ("*/work/arinyaho", []),                          # plain glob
+    ("${WORK_ROOT:-/tmp}/x", []),                     # not a $VAR/${VAR} form
+])
+def test_unexpandable_scope_vars_flags_only_late_variables(scope, expected):
+    assert unexpandable_scope_vars(scope) == expected
+
+
+@pytest.mark.parametrize("scope", ["$WORK_ROOT/*", "~/Projects/acme"])
+def test_render_is_identical_whether_or_not_the_scope_is_flagged(scope, monkeypatch):
+    # The warning is advisory: detection must not change one byte of the script.
+    profiles = {"p": Profile(name="p", project_env=[
+        ProjectEnvScope(match=scope, env={"AWS_PROFILE": "work"})])}
+    monkeypatch.setenv("WORK_ROOT", "/Users/nobody/work")
+    out = render_ambient(profiles)
+    monkeypatch.delenv("WORK_ROOT")
+    assert render_ambient(profiles) == out                    # no sync-time expansion
+    assert out == (
+        f'{HEADER}\ncase "$PWD/" in {match_base(scope)}/*)\n'
+        f'  export AWS_PROFILE="work"\n;; esac\n{FOOTER}\n'
+    )
 
 
 def test_render_escapes_only_quote_and_backslash_keeps_dollar_and_backtick():
