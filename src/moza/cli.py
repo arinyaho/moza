@@ -938,11 +938,21 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
 
 @main.command("token")
 @click.argument("service", type=click.Choice(["google", "atlassian", "notion"]))
-def token_cmd(service: str) -> None:
+@click.option(
+    "--profile",
+    "profile",
+    default=None,
+    help="Profile to mint for. Defaults to $MOZA_PROFILE. Prefer passing this "
+    "explicitly from an agent, whose shell state does not survive between calls.",
+)
+def token_cmd(service: str, profile: str | None) -> None:
     cfg = _require_config()
-    name = os.environ.get("MOZA_PROFILE")
+    name = profile or os.environ.get("MOZA_PROFILE")
     if not name:
-        raise click.ClickException("MOZA_PROFILE not set; run `eval \"$(moza use <profile>)\"` first")
+        raise click.ClickException(
+            "no profile: pass --profile <name>, or set $MOZA_PROFILE via "
+            'eval "$(moza use <profile>)" in this same shell'
+        )
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")

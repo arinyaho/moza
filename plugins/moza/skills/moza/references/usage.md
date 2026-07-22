@@ -31,13 +31,29 @@ moza login personal --service notion
 # paste a Notion integration token
 ```
 
-## Activate
+## Activate (interactive shell)
 
 ```bash
 eval "$(moza use personal)"  # or: moza-use personal
 gh pr list
 gcloud projects list
 ```
+
+The exports live in *this* shell only. A second terminal is unaffected, and a new shell
+starts with no profile.
+
+## Activate (AI agent)
+
+Agent harnesses run each command in a fresh shell, so an `eval` from an earlier tool call
+has already been discarded — silently. Prefer the stateless form:
+
+```bash
+moza exec personal -- gh pr list
+moza token google --profile personal
+```
+
+If a sequence genuinely needs one shell, keep the `eval` and the commands in a single
+invocation. See the skill's *Activation pattern* section.
 
 ## Cross-identity one-off
 
