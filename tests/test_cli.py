@@ -215,13 +215,17 @@ def test_token_google_prints_access_token(runner, moza_cfg, mocker):
     assert "ya29-access" in result.output
 
 
-def test_token_google_accepts_explicit_profile_without_env(runner, moza_cfg, mocker):
+def test_token_google_accepts_explicit_profile_without_env(runner, moza_cfg, mocker, monkeypatch):
     """`moza token` must work without an ambient MOZA_PROFILE.
 
     AI agent harnesses (Claude Code, Codex) start a fresh shell per tool call, so
     env vars set by a previous `eval "$(moza use ...)"` are gone by the next call.
     Without an explicit --profile the agent has no reliable way to mint a token.
     """
+    # CliRunner's env= overlays os.environ rather than replacing it, so an
+    # exported MOZA_PROFILE on the developer's machine would otherwise mask
+    # whether --profile did any work at all.
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
     runner.invoke(main, ["init"], input="3\nmoza-\n")
     backend = mocker.patch("moza.cli.load_backend").return_value
     backend.put.side_effect = ["ref://oauth", "ref://refresh"]
@@ -248,8 +252,43 @@ def test_token_google_accepts_explicit_profile_without_env(runner, moza_cfg, moc
     assert "ya29-access" in result.output
 
 
-def test_token_without_profile_or_env_names_both_remedies(runner, moza_cfg, mocker):
+def test_token_google_explicit_profile_beats_env(runner, moza_cfg, mocker):
+    """--profile must win over a conflicting ambient MOZA_PROFILE.
+
+    The env var is only a fallback (`profile or $MOZA_PROFILE`). MOZA_PROFILE is
+    pinned here to a profile that does not exist, so if --profile were ignored the
+    command would fail with "not found" instead of minting the token.
+    """
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.side_effect = ["ref://oauth", "ref://refresh"]
+    backend.get.side_effect = lambda r: {
+        "ref://oauth": b"csec",
+        "ref://refresh": b"refresh-zzz",
+    }[r]
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("moza.cli.exchange_refresh_token", return_value="ya29-access")
+
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "google",
+         "--email", "me@x.com", "--client-id", "cid"],
+        input="y\ncsec\n",
+    )
+
+    result = runner.invoke(
+        main,
+        ["token", "google", "--profile", "personal"],
+        env={"MOZA_PROFILE": "someone-else", "MOZA_CONFIG": str(moza_cfg)},
+    )
+    assert result.exit_code == 0, result.output
+    assert "ya29-access" in result.output
+    assert "someone-else" not in result.output
+
+
+def test_token_without_profile_or_env_names_both_remedies(runner, moza_cfg, mocker, monkeypatch):
     """The error must point at --profile, not only at the eval pattern."""
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
     runner.invoke(main, ["init"], input="3\nmoza-\n")
     result = runner.invoke(main, ["token", "google"], env={"MOZA_CONFIG": str(moza_cfg)})
     assert result.exit_code != 0
