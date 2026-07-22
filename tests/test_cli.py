@@ -287,12 +287,14 @@ def test_token_google_explicit_profile_beats_env(runner, moza_cfg, mocker):
 
 
 def test_token_without_profile_or_env_names_both_remedies(runner, moza_cfg, mocker, monkeypatch):
-    """The error must point at --profile, not only at the eval pattern."""
+    """The error must name both remedies: the --profile flag and the eval pattern."""
     monkeypatch.delenv("MOZA_PROFILE", raising=False)
     runner.invoke(main, ["init"], input="3\nmoza-\n")
     result = runner.invoke(main, ["token", "google"], env={"MOZA_CONFIG": str(moza_cfg)})
     assert result.exit_code != 0
     assert "--profile" in result.output
+    assert "MOZA_PROFILE" in result.output
+    assert 'eval "$(moza use' in result.output
 
 
 def test_init_non_interactive_keychain(runner, moza_cfg, mocker):
