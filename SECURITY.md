@@ -20,7 +20,11 @@ Everything here is stated against the code. If you find a claim the code does no
 
 **Hiding secrets from an AI agent: NOT a goal.** This is the most important line in this document. `moza` puts credentials into the environment so that ordinary tools pick them up. An agent that can run commands in that environment can read them, and so can every process it starts. If your threat model is a prompt-injected agent exfiltrating a token, `moza` is the wrong layer — you want a credential proxy that never lets the value reach the agent at all. `moza` trades that isolation for working with every CLI and SDK unmodified, and for letting a person choose which identity to act as.
 
-**Integrity of the configuration: NOT protected.** The config file is plain JSON with no signature or checksum. Anything that can write it — or set `$MOZA_CONFIG` — decides which backend `moza` talks to and which directories map to which identity.
+**Integrity of the configuration: NOT protected, and the consequence is worse than misrouting.** The config file is plain JSON with no signature or checksum. Anything that can write it — or set `$MOZA_CONFIG` — decides which backend `moza` talks to and which directories map to which identity.
+
+It also reaches further than that. A `project_env` value is emitted into `ambient.zsh` inside a double-quoted `export`, with only `\` and `"` escaped — `$` and backticks are left intact deliberately, because that is how a value like `$HOME/bin` is meant to work. `moza env sync` validates the result with `zsh -n`, which *parses* without executing, so a command substitution passes the gate. `~/.zshenv` then sources that file in **every** zsh you start, including non-interactive ones. So a `project_env` value is executable code, and anyone who can write your config — or your backend manifest, which `moza init --yes` imports without prompting — can run commands as you.
+
+Treat the config file and the backend manifest as trusted input. Do not import a manifest you did not create.
 
 **Non-repudiation: no protections attempted.** `moza` keeps no audit log. Nothing records which identity was activated when, or which command ran under it.
 
@@ -28,7 +32,7 @@ Everything here is stated against the code. If you find a claim the code does no
 
 | Location | Mode | Contents | Removed by |
 |---|---|---|---|
-| `~/.config/moza/config.json` (override with `$MOZA_CONFIG`) | 0600 | Backend type and options, bootstrap account, secret-name templates, per-profile identifiers and **references** — never a secret value | nothing |
+| `~/.config/moza/config.json` (override with `$MOZA_CONFIG`) | 0600 | Backend type and options, bootstrap account, secret-name templates, per-profile identifiers and **references**. No secret value, with one exception: `project_env` values are stored verbatim, so a secret typed there lands here | nothing |
 | `~/.config/moza/ambient.zsh` | 0600 | Generated `case` blocks exporting each profile's `project_env` values | rewritten by `moza env sync` |
 | `~/.zshenv` (a marked region) | 0600 | One line sourcing `ambient.zsh` | nothing |
 | `$TMPDIR/moza/<pid>-<profile>-adc.json` | 0600 | **Secret.** Google OAuth client secret + refresh token | see [Lifetime](#lifetime-and-cleanup) |
@@ -51,7 +55,7 @@ Variables that carry a **path to a secret**: `GOOGLE_APPLICATION_CREDENTIALS`, `
 
 Variables that carry **only a selector**: `MOZA_PROFILE`, `MOZA_EPHEMERAL_DIR`, `CLOUDSDK_ACTIVE_CONFIG_NAME`, `CLOUDSDK_CORE_PROJECT`, `AWS_PROFILE`, `AWS_DEFAULT_REGION`, `OCI_CLI_PROFILE`, `OCI_CLI_CONFIG_FILE`, `ATLASSIAN_EMAIL`, `ATLASSIAN_BASE_URL`.
 
-Once `moza use` has run in a shell, the first group is readable by that shell and **every process it starts afterwards** — an editor, a language server, a build script, an AI agent — whether or not that process has anything to do with the profile. On Linux, anything able to read `/proc/<pid>/environ` for your UID sees them; on macOS, `ps -E` does. There is no expiry and no scoping: the exposure is bounded by the shell's lifetime, and `moza unset` is the only thing that ends it early.
+Once `moza use` has run in a shell, the first group is readable by that shell and **every process it starts afterwards** — an editor, a language server, a build script, an AI agent — whether or not that process has anything to do with the profile. On Linux, anything able to read `/proc/<pid>/environ` for your UID sees them; on macOS, `ps -E` does. There is no expiry and no scoping: the exposure is bounded by the shell's lifetime, and `moza-unset` is the only thing that ends it early. (Bare `moza unset` only prints the commands — like `moza use`, it cannot change the calling shell.)
 
 `moza exec` and `moza run` narrow this considerably — the variables exist only for the duration of one child process — which is why they are the recommended form, especially for agents.
 
@@ -70,8 +74,10 @@ It only *selects among* credentials that remain on disk for:
 | gcloud CLI identity | The gcloud configuration and its credential store. `CLOUDSDK_ACTIVE_CONFIG_NAME` names a configuration; it does not supply one |
 | GitHub SSH, path mode | Your private key stays in `~/.ssh` |
 | `moza`'s own backend access | The bootstrap Google ADC, for the GCP backend, or `~/.oci/config` for the OCI backend |
+| `macos_keychain` backend | Your login keychain, `~/Library/Keychains/` — encrypted at rest, but the secrets are in `$HOME` |
+| `keyring` backend | The OS credential store, typically `~/.local/share/keyrings` — same caveat |
 
-So "no token files in your home directory" is true of files `moza` writes. It is not a claim that no credential remains in `$HOME`.
+So `moza` writing no token files into your home directory is true of the files it writes itself. It is not a claim that no credential of yours remains in `$HOME` — the table above is the list that does remain.
 
 ## Backends
 
@@ -84,7 +90,7 @@ So "no token files in your home directory" is true of files `moza` writes. It is
 
 Compromise of the bootstrap credential is equivalent to compromise of every identity the cloud backends hold. It is the single most valuable thing on the machine and deserves the strongest protection you can give it.
 
-**The manifest.** With a cloud backend, `moza` stores a copy of the configuration as a secret named `moza-config-manifest`, and pushes it after any command that changes the config. It contains references and identifiers only — no secret value — with one exception: values you place in `project_env` are copied verbatim, so a secret typed there is uploaded. Do not put secrets in `project_env`.
+**The manifest.** With a cloud backend, `moza` stores a copy of the configuration as a secret named `moza-config-manifest`, and pushes it after `moza login` and `moza logout`, on a best-effort basis — a failed push is a warning, not an error. `moza init` writes the local config without pushing, and `moza push` is the explicit manual path. It contains references and identifiers only — no secret value — with one exception: values you place in `project_env` are copied verbatim, so a secret typed there is uploaded. Do not put secrets in `project_env`.
 
 `moza init --yes` imports that manifest without prompting. A backend an attacker controls can therefore redefine every profile, including which directories claim which identity, on the next non-interactive `init`.
 
@@ -98,11 +104,13 @@ Compromise of the bootstrap credential is equivalent to compromise of every iden
 - That command performs a backend health check first, so **offline, or with an expired bootstrap credential, nothing is swept.**
 - A shell that never exits — a long-lived terminal, a multiplexer pane, an agent session — never fires the trap.
 
-The practical consequence: `README`'s phrase "cleaned on shell exit" describes the intent, not a guarantee. Assume a 0600 file may persist under `$TMPDIR` until something sweeps it, and treat `$TMPDIR` as sensitive.
+The practical consequence: sweeping is intent, not a guarantee. Assume a 0600 file may persist under `$TMPDIR` until something sweeps it, and treat `$TMPDIR` as sensitive.
 
-`moza unset` clears the variables. It does not delete anything on disk.
+The `env-<random>.sh` file deserves its own note, since it holds every exported secret in one place. `moza use` writes it and prints a one-liner that sources and then deletes it — so it is removed as soon as you `eval` the output. If you never do (you captured stdout instead, used `--print`, or the `source` failed so the `&& rm -f` never ran), it stays. The sweep only reclaims it after five minutes, and only when a `moza doctor --gc` actually runs, which the previous paragraph's conditions govern. Capturing `moza use` output without evaluating it therefore leaves a complete set of your credentials on disk.
 
-`moza logout` removes a secret from the backend. It does not reach into shells that already hold the value, or the files they point at — those keep working until the shell exits or a sweep runs.
+`moza-unset` clears the variables. It does not delete anything on disk. Bare `moza unset` only prints the `unset` lines for you to eval, and unlike `moza use` it has no terminal guard, so it looks like it worked.
+
+`moza logout` removes a secret from the backend — but not always immediately. On OCI it *schedules* deletion, which is cancellable for up to 30 days, so the value stays retrievable until that elapses. On GCP the secret and all its versions are destroyed at once; note though that re-running `moza login` for a service adds a new version without disabling the old ones, so rotating this way leaves the previous value readable until you delete the secret. Logout also does not reach into shells that already hold the value, or the files they point at — those keep working until the shell exits or a sweep runs.
 
 ## Known weaknesses
 
