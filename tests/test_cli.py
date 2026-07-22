@@ -186,6 +186,70 @@ def test_use_print_flag_overrides_tty_guard(runner, moza_cfg, mocker, tmp_path, 
     assert "ghp_xxx" not in result.output
 
 
+def test_exec_removes_ephemeral_files_after_child_exits(
+    runner, moza_cfg, mocker, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://slack"
+    # A slack workspace guarantees build_env writes an ephemeral token file,
+    # so the assertions below can't pass vacuously.
+    runner.invoke(
+        main,
+        ["login", "demo", "--service", "slack", "--workspace", "acme"],
+        input="y\nxoxp-secret\n",
+    )
+
+    backend.get.return_value = b"xoxp-secret"
+    seen: dict = {}
+
+    def fake_call(argv, env=None):
+        path = Path(env["MOZA_SLACK_TOKENS"])
+        seen["path"] = path
+        seen["existed"] = path.exists()
+        seen["body"] = path.read_text() if seen["existed"] else ""
+        return 0
+
+    mocker.patch("moza.cli.subprocess.call", side_effect=fake_call)
+    result = runner.invoke(main, ["exec", "demo", "--", "true"])
+    assert result.exit_code == 0, result.output
+
+    # The child really did get a plaintext credential file...
+    assert seen["existed"]
+    assert "xoxp-secret" in seen["body"]
+    # ...and nothing survives the exec.
+    assert not seen["path"].exists()
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
+def test_exec_removes_ephemeral_files_when_child_fails(
+    runner, moza_cfg, mocker, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://slack"
+    runner.invoke(
+        main,
+        ["login", "demo", "--service", "slack", "--workspace", "acme"],
+        input="y\nxoxp-secret\n",
+    )
+
+    backend.get.return_value = b"xoxp-secret"
+    written: list[Path] = []
+
+    def boom(argv, env=None):
+        written.append(Path(env["MOZA_SLACK_TOKENS"]))
+        raise KeyboardInterrupt
+
+    mocker.patch("moza.cli.subprocess.call", side_effect=boom)
+    result = runner.invoke(main, ["exec", "demo", "--", "true"])
+    assert result.exit_code != 0
+    assert written and not written[0].exists()
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
 def test_unset_emits_unsets(runner, moza_cfg):
     runner.invoke(main, ["init"], input="3\nmoza-\n")
     result = runner.invoke(main, ["unset"])

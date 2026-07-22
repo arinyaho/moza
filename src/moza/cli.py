@@ -930,9 +930,20 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
     if not prof:
         raise click.ClickException(f"profile {profile_name!r} not found")
     backend = load_backend(cfg.secrets_backend)
-    bundle = build_env(prof, backend)
-    env = {**os.environ, **bundle.env}
-    rc = subprocess.call(list(argv), env=env)
+    # `exec` owns the child's whole lifetime, so it also owns the plaintext
+    # credential files build_env drops in $TMPDIR/moza (ADC blob with the
+    # client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
+    # nothing downstream needs them to survive this process — and no shell EXIT
+    # trap fires for an exec-only workflow, since MOZA_PROFILE is only ever set
+    # in the child's environment. Clean up unconditionally: normal exit,
+    # non-zero exit, child killed by a signal, Ctrl-C, or an exception.
+    store = EphemeralStore()
+    try:
+        bundle = build_env(prof, backend, pid=store.pid)
+        env = {**os.environ, **bundle.env}
+        rc = subprocess.call(list(argv), env=env)
+    finally:
+        store.cleanup()
     sys.exit(rc)
 
 
