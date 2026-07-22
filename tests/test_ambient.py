@@ -76,6 +76,9 @@ def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
     ("$HOST/x", []),                                  # ...and HOST really is set
     ("$TTY/x", ["TTY"]),                              # set but EMPTY off a tty, which
                                                       # collapses the scope just like unset
+    ("$TERM/x", ["TERM"]),                            # only a terminal app sets these two;
+    ("$LANG/x", ["LANG"]),                            # a launchd-started zsh has neither,
+                                                      # and ~/.zshenv is read by every zsh
     ("~/Projects/acme", []),                          # tilde needs no variable
     ("/Users/nobody/Projects/acme", []),              # literal
     ("*/work/arinyaho", []),                          # plain glob

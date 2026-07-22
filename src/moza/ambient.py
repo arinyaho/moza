@@ -49,8 +49,14 @@ ZSHENV_AVAILABLE_VARS = frozenset({
     "HOME", "PWD", "OLDPWD", "PATH", "SHLVL", "IFS",
     "ZSH_NAME", "ZSH_VERSION", "UID", "EUID", "GID", "EGID", "PPID",
     "HOST", "LOGNAME", "USERNAME", "OSTYPE", "MACHTYPE", "VENDOR",
-    # placed in the inherited environment by login / launchd / sshd / the terminal
-    "USER", "SHELL", "TMPDIR", "TERM", "LANG",
+    # placed in the inherited environment by login / launchd / sshd
+    #
+    # TERM and LANG are deliberately absent: only a terminal application supplies
+    # them. A launchd-started zsh inherits USER/SHELL/TMPDIR/HOME/LOGNAME/PATH and
+    # neither of those two, and stock sshd forwards neither, so a `$TERM/...` or
+    # `$LANG/...` scope collapses to `/*` in exactly the non-interactive shells
+    # `~/.zshenv` is read by — the same reason TTY is off the list.
+    "USER", "SHELL", "TMPDIR",
 })
 
 
