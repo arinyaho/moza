@@ -49,7 +49,8 @@ has already been discarded — silently. Prefer the stateless form:
 
 ```bash
 moza exec personal -- gh pr list
-moza token google --profile personal
+TOKEN=$(moza token google --profile personal) && curl -s -H "Authorization: Bearer $TOKEN" \
+  'https://gmail.googleapis.com/gmail/v1/users/me/profile'
 ```
 
 If a sequence genuinely needs one shell, keep the `eval` and the commands in a single
