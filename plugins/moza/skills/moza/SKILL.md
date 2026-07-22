@@ -70,9 +70,9 @@ Two patterns are safe. Use one of them; never rely on an `eval` from an earlier 
 
 **1. `moza exec` — preferred.** It carries the identity per invocation, so there is no earlier
 `eval` left to expire. It layers the profile *over* the ambient env rather than replacing it,
-though: for a service the profile does not define — or a variable that outranks moza's, like
-`GITHUB_TOKEN` over `GH_TOKEN` (see `references/troubleshooting.md`) — the ambient credential
-still wins, so confirm with the service's own identity check below.
+though: for a service the profile does not define — a profile with no `aws` block still inherits
+an ambient `AWS_ACCESS_KEY_ID` — the ambient credential still wins, so confirm with the
+service's own identity check below.
 
 ```bash
 $MOZA exec work-foo -- gh pr list
