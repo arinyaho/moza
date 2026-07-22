@@ -120,12 +120,13 @@ class TestResolveExpandedScopes:
         identically — not a silent miss."""
         monkeypatch.setenv("HOME", "/Users/me")
         p = profiles(
-            prof("a", "~/Projects/shared"),
-            prof("b", "$HOME/Projects/shared"),
+            prof("delta", "~/Projects/shared"),
+            prof("echo", "$HOME/Projects/shared"),
         )
         with pytest.raises(AmbiguousScope) as exc:
             resolve_profile(p, "/Users/me/Projects/shared")
-        assert "a" in str(exc.value) and "b" in str(exc.value)
+        # naming both clashing profiles is the whole point of refusing
+        assert "claimed with equal specificity by: delta, echo" in str(exc.value)
 
 
 class TestResolveProfile:
@@ -162,12 +163,13 @@ class TestResolveProfile:
         """Two scopes of identical specificity have no principled winner. Picking
         one silently would misroute credentials, so refuse and make the user say."""
         p = profiles(
-            prof("a", "*/Projects/shared"),
-            prof("b", "*/Projects/shared"),
+            prof("foxtrot", "*/Projects/shared"),
+            prof("golf", "*/Projects/shared"),
         )
         with pytest.raises(AmbiguousScope) as exc:
             resolve_profile(p, "/Users/me/Projects/shared")
-        assert "a" in str(exc.value) and "b" in str(exc.value)
+        # the user can only pick a winner if the refusal names both candidates
+        assert "claimed with equal specificity by: foxtrot, golf" in str(exc.value)
 
     def test_a_profile_may_claim_several_scopes(self):
         p = profiles(prof("work", "*/Projects/acme", "*/work/*"))
