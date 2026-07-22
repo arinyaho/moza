@@ -153,3 +153,36 @@ def test_config_without_project_env_defaults_empty():
            "bootstrap": {}, "secret_naming": {"default": "d", "slack_token": "s"},
            "profiles": {"p": {"github": None}}}
     assert deserialize_config(raw).profiles["p"].project_env == []
+
+
+def _raw_with_default_for(value) -> dict:
+    return {"$schema_version": 1, "secrets_backend": {"type": "macos_keychain"},
+            "bootstrap": {}, "secret_naming": {"default": "d", "slack_token": "s"},
+            "profiles": {"work": {"default_for": value}}}
+
+
+def test_default_for_scalar_string_is_rejected():
+    # A bare string must not be char-split into globs: the resulting "*" would
+    # claim every directory on the machine and misroute credentials.
+    with pytest.raises(ValueError) as exc:
+        deserialize_config(_raw_with_default_for("*/Projects/acme"))
+    assert "profile 'work': default_for must be a list of directory glob strings" in str(exc.value)
+    assert "got str" in str(exc.value)
+
+
+def test_default_for_non_string_entry_is_rejected():
+    with pytest.raises(ValueError) as exc:
+        deserialize_config(_raw_with_default_for([123]))
+    assert "profile 'work': default_for entries must be directory glob strings" in str(exc.value)
+    assert "got int" in str(exc.value)
+
+
+def test_default_for_list_of_strings_is_accepted():
+    cfg = deserialize_config(_raw_with_default_for(["*/Projects/acme", "*/work/*"]))
+    assert cfg.profiles["work"].default_for == ["*/Projects/acme", "*/work/*"]
+
+
+def test_default_for_missing_defaults_empty():
+    raw = _raw_with_default_for(None)
+    raw["profiles"]["work"].pop("default_for")
+    assert deserialize_config(raw).profiles["work"].default_for == []

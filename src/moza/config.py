@@ -169,6 +169,29 @@ def _config_to_dict(cfg: Config) -> dict:
     }
 
 
+def _default_for_from_raw(profile_name: str, value: object) -> list[str]:
+    """Validate a profile's ``default_for`` instead of coercing it.
+
+    A bare string would otherwise be exploded into one glob per character by
+    ``list()``, and the resulting ``"*"`` element claims every directory on the
+    machine -- silently routing credentials to the wrong profile.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(
+            f"profile {profile_name!r}: default_for must be a list of directory glob "
+            f"strings (e.g. [\"*/Projects/acme\"]), got {type(value).__name__}: {value!r}"
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"profile {profile_name!r}: default_for entries must be directory glob "
+                f"strings, got {type(item).__name__}: {item!r}"
+            )
+    return list(value)
+
+
 def _config_from_dict(raw: dict) -> Config:
     sb_raw = dict(raw.get("secrets_backend", {}))
     sb_type = sb_raw.pop("type")
@@ -203,7 +226,7 @@ def _config_from_dict(raw: dict) -> Config:
             atlassian=atlassian,
             notion=notion,
             project_env=project_env,
-            default_for=list(p.get("default_for") or []),
+            default_for=_default_for_from_raw(name, p.get("default_for")),
         )
 
     return Config(
