@@ -80,8 +80,12 @@ def _emit_value(value: str) -> str:
 
 
 def _scope_block(scope) -> str:
-    # match_base is shared with identity resolution so that a scope covers the
-    # same directories whether it is deciding env vars or deciding who you are.
+    # match_base is shared with identity resolution so both agree on where a
+    # scope ENDS — the trailing '/*' and '/' normalization, and the '/'-separated
+    # descendant boundary. They deliberately disagree about expansion: zsh
+    # expands the pattern here at match time, while identity resolution leaves an
+    # unset or empty reference literal so it fails closed. unexpandable_scope_vars
+    # warns about the scopes where that difference bites.
     lines = [f'case "$PWD/" in {match_base(scope.match)}/*)']
     for key in scope.env:  # preserve declared key order
         lines.append(f"  export {key}={_emit_value(scope.env[key])}")

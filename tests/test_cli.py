@@ -1350,6 +1350,71 @@ def test_run_honours_an_inherited_profile_over_the_directory(runner, tmp_path, m
     assert called.call_args.kwargs["env"]["MOZA_PROFILE"] == "personal"
 
 
+def test_run_lets_the_profile_override_the_ambient_environment(runner, tmp_path, monkeypatch, mocker):
+    """The profile must win the merge, not the shell it was launched from.
+
+    `_run_as_profile` builds the child env as {**os.environ, **bundle.env}. If
+    that order were ever reversed, a shell already carrying GH_TOKEN from an
+    earlier `moza use` would hand the child THAT token while the child still
+    reports the requested profile — a silent cross-identity leak, and the exact
+    failure this tool exists to prevent. Nothing pinned the order before.
+    """
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    # A stale value from some earlier activation, still exported in this shell.
+    monkeypatch.setenv("MOZA_EPHEMERAL_DIR", "/stale/from/an/earlier/shell")
+    monkeypatch.chdir(work)
+    mocker.patch("moza.cli.load_backend")
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code == 0, result.output
+    child_env = called.call_args.kwargs["env"]
+    # build_env sets MOZA_EPHEMERAL_DIR; the profile's value must displace the
+    # ambient one rather than the other way round.
+    assert child_env["MOZA_EPHEMERAL_DIR"] != "/stale/from/an/earlier/shell"
+    assert child_env["MOZA_PROFILE"] == "work"
+    # Ambient values the profile does NOT define still pass through.
+    assert child_env["TMPDIR"] == str(tmp_path)
+
+
+def test_run_rejects_a_stale_active_profile(runner, tmp_path, monkeypatch, mocker):
+    """`run` indexes cfg.profiles[name] directly, on the strength of the check in
+    _resolve_cwd_profile. If that check ever moves, this fails loudly here rather
+    than as a KeyError traceback."""
+    work = tmp_path / "Projects" / "acme"
+    work.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch, work=["*/Projects/acme"])
+    monkeypatch.setenv("MOZA_PROFILE", "deleted-profile")
+    monkeypatch.chdir(work)
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code != 0
+    assert "deleted-profile" in result.output
+    assert "not found" in result.output
+    called.assert_not_called()
+
+
+def test_run_refuses_an_ambiguous_directory_without_an_override(runner, tmp_path, monkeypatch, mocker):
+    """Only the override variant was pinned; the refusal itself was not."""
+    shared = tmp_path / "Projects" / "shared"
+    shared.mkdir(parents=True)
+    _pinned_config(tmp_path, monkeypatch,
+                   alpha=["*/Projects/shared"], bravo=["*/Projects/shared"])
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    monkeypatch.chdir(shared)
+    called = mocker.patch("moza.cli.subprocess.call", return_value=0)
+
+    result = runner.invoke(main, ["run", "--", "true"])
+    assert result.exit_code != 0
+    assert "claimed with equal specificity by: alpha, bravo" in result.output
+    called.assert_not_called()
+
+
 def test_run_removes_ephemeral_files_after_child_exits(runner, tmp_path, monkeypatch, mocker):
     """`run` spawns the child, so like `exec` it owns the plaintext credential
     files build_env writes — and no shell EXIT trap sweeps them on this path."""
