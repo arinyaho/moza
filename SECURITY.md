@@ -69,7 +69,7 @@ It only *selects among* credentials that remain on disk for:
 
 | Service | What remains |
 |---|---|
-| AWS, profile mode | `~/.aws/credentials` or `~/.aws/config` — `moza` stores nothing and sets only `AWS_PROFILE` |
+| AWS, profile mode | `~/.aws/credentials` or `~/.aws/config` — `moza` stores no credential and sets `AWS_PROFILE`, plus `AWS_DEFAULT_REGION` when the profile carries a region |
 | OCI, always | `~/.oci/config` and the API-key PEM it names. `moza` stores no OCI secret at all |
 | gcloud CLI identity | The gcloud configuration and its credential store. `CLOUDSDK_ACTIVE_CONFIG_NAME` names a configuration; it does not supply one |
 | GitHub SSH, path mode | Your private key stays in `~/.ssh` |
@@ -92,7 +92,9 @@ Compromise of the bootstrap credential is equivalent to compromise of every iden
 
 **The manifest.** With a cloud backend, `moza` stores a copy of the configuration as a secret named `moza-config-manifest`, and pushes it after `moza login` and `moza logout`, on a best-effort basis — a failed push is a warning, not an error. `moza init` writes the local config without pushing, and `moza push` is the explicit manual path. It contains references and identifiers only — no secret value — with one exception: values you place in `project_env` are copied verbatim, so a secret typed there is uploaded. Do not put secrets in `project_env`.
 
-`moza init --yes` imports that manifest without prompting. A backend an attacker controls can therefore redefine every profile, including which directories claim which identity, on the next non-interactive `init`.
+**On the OCI backend the manifest never updates after the first push.** That backend's write path only creates a secret; it has no update path, so every later push fails — and because pushes are best-effort, you see a warning rather than an error. A second machine that pulls will get the configuration as it was when the manifest was first written, which may name profiles whose secrets have since been deleted. Until this is fixed, treat the OCI manifest as a one-time snapshot and carry configuration changes across machines yourself.
+
+Two commands adopt that manifest. `moza init --yes` imports it without prompting, and `moza sync` pulls it and replaces the local config — also without prompting under `--yes`. Its interactive confirmation lists only profile *names*, so a changed `project_env` value shows up as `~ change: work` and nothing more. A backend an attacker controls can therefore redefine every profile — including which directories claim which identity, and including the `project_env` values that become executable code — through either path.
 
 ## Lifetime and cleanup
 

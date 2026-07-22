@@ -140,9 +140,12 @@ The commands above are the **GCP Secret Manager** flow; an `oci_vault` backend
 uses the same `moza init` import prompt but a different bootstrap (an OCI API key
 in `~/.oci/config`, no ADC / quota-project step).
 
-`moza init --no-import` skips the import prompt; `moza init --yes` (or any
-non-interactive run) auto-imports without asking — useful for agent-driven
-setup. Later, re-pull with `moza sync` (`--dry-run` to preview) or force-upload
+`moza init --no-import` skips the import prompt. `moza init --yes` auto-imports
+without asking. A non-interactive run *without* `--yes` does **not** auto-import:
+the confirmation prompt aborts, and because `init` has already written a fresh
+empty config by that point, you are left with no profiles. Pass `--yes` or
+`--no-import` explicitly when running `init` from a script or an agent — and note
+that `--yes` means trusting whatever the backend manifest contains. Later, re-pull with `moza sync` (`--dry-run` to preview) or force-upload
 local state with `moza push`. `moza sync` and `moza push` require a cloud backend
 (`gcp_secret_manager` / `oci_vault`); they are a no-op or error on
 `macos_keychain`.
