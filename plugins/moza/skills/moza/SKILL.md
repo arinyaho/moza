@@ -90,10 +90,13 @@ bq ls -p                          # ditto
 Splitting those lines across two tool calls is the bug described above.
 
 **Confirm the identity when the action is destructive or the profile matters.** Fold the
-check into the same invocation as the action:
+check into the same invocation as the action, and compare the answer to the login you
+expect — a bare `gh api user` succeeds under *any* valid token, so exit status alone gates
+nothing:
 
 ```bash
-$MOZA exec work-foo -- gh api user -q .login && $MOZA exec work-foo -- gh pr merge 123
+[ "$($MOZA exec work-foo -- gh api user -q .login)" = "expected-login" ] \
+  && $MOZA exec work-foo -- gh pr merge 123
 ```
 
 For Gmail/Calendar/Drive (no helper in v1 — use curl). Pass `--profile` explicitly so the
