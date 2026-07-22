@@ -51,24 +51,63 @@ Use `$MOZA` instead of `moza` in all subsequent commands.
 ```
 $MOZA list                          # see profiles
 $MOZA status                        # what is active in *this* shell
-$MOZA use <profile>                 # prints `export ...`; eval to activate
-$MOZA exec <profile> -- <cmd...>    # run cmd with the profile's env (no shell mutation)
-$MOZA token google                  # mint a fresh google access token (for curl)
+$MOZA use <profile>                 # prints a `source …; rm …` loader; eval to activate (same call only)
+$MOZA exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer this
+$MOZA token google --profile <p>    # mint a fresh google access token (for curl)
 ```
 
 ## Activation pattern
+
+**Your shell state does not survive between tool calls.** Claude Code, Codex, and most
+agent harnesses start a fresh shell for every command invocation, so environment
+variables set by `eval "$($MOZA use ...)"` are gone by your next call.
+
+Nothing errors when this happens. The next command simply runs as whatever identity the
+ambient shell already had. For a credential router that is the worst possible failure
+mode: you believe you are acting as `work-foo`, and you are acting as something else.
+
+Two patterns are safe. Use one of them; never rely on an `eval` from an earlier call.
+
+**1. `moza exec` — preferred.** It carries the identity per invocation, so there is no earlier
+`eval` left to expire. It layers the profile *over* the ambient env rather than replacing it,
+though: for a service the profile does not define — a profile with no `aws` block still inherits
+an ambient `AWS_ACCESS_KEY_ID` — the ambient credential still wins, so confirm with the
+service's own identity check below.
+
+```bash
+$MOZA exec work-foo -- gh pr list
+$MOZA exec work-foo -- gcloud projects list
+$MOZA exec work-foo -- aws sts get-caller-identity
+```
+
+**2. Single-call `eval` — for a sequence that must share one shell.**
+
+Every line below must be in **one** command invocation:
 
 ```bash
 eval "$($MOZA use work-foo)"
 gh pr list                        # uses GH_TOKEN
 gcloud projects list              # uses CLOUDSDK_ACTIVE_CONFIG_NAME
-bq ls -p                           # ditto
+bq ls -p                          # ditto
 ```
 
-For Gmail/Calendar/Drive (no helper in v1 — use curl):
+Splitting those lines across two tool calls is the bug described above.
+
+**Confirm the identity when the action is destructive or the profile matters.** Fold the
+check into the same invocation as the action, and compare the answer to the login you
+expect — a bare `gh api user` succeeds under *any* valid token, so exit status alone gates
+nothing:
 
 ```bash
-TOKEN=$(moza token google)
+[ "$($MOZA exec work-foo -- gh api user -q .login)" = "expected-login" ] \
+  && $MOZA exec work-foo -- gh pr merge 123
+```
+
+For Gmail/Calendar/Drive (no helper in v1 — use curl). Pass `--profile` explicitly so the
+call does not depend on ambient shell state:
+
+```bash
+TOKEN=$($MOZA token google --profile work-foo)
 curl -s -H "Authorization: Bearer $TOKEN" \
   'https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:foo'
 ```
@@ -76,6 +115,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 For Slack (multi-workspace per profile):
 
 ```bash
+eval "$($MOZA use work-foo)"      # same call: brings in MOZA_SLACK_TOKENS
 TOKEN=$(jq -r '."team-a"' "$MOZA_SLACK_TOKENS")
 curl -s -H "Authorization: Bearer $TOKEN" \
   'https://slack.com/api/conversations.list'
@@ -86,9 +126,9 @@ If the profile has only one workspace, `$MOZA_SLACK_DEFAULT_TOKEN` is also expor
 For Atlassian (Jira/Confluence):
 
 ```bash
-TOKEN=$(moza token atlassian)
-EMAIL=$ATLASSIAN_EMAIL
-curl -s -u "$EMAIL:$TOKEN" \
+TOKEN=$($MOZA token atlassian --profile work-foo)
+eval "$($MOZA use work-foo)"      # same call: brings in ATLASSIAN_EMAIL / _BASE_URL
+curl -s -u "$ATLASSIAN_EMAIL:$TOKEN" \
   "$ATLASSIAN_BASE_URL/rest/api/3/issue/PROJ-123"
 ```
 
@@ -97,7 +137,7 @@ curl -s -u "$EMAIL:$TOKEN" \
 For Notion:
 
 ```bash
-TOKEN=$(moza token notion)
+TOKEN=$($MOZA token notion --profile work-foo)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Notion-Version: 2022-06-28" \
   https://api.notion.com/v1/users/me
 ```
@@ -107,8 +147,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Notion-Version: 2022-06-28" \
 For AWS:
 
 ```bash
-aws s3 ls                          # uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE
-aws sts get-caller-identity        # verify active identity
+$MOZA exec work-foo -- aws s3 ls                     # uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE
+$MOZA exec work-foo -- aws sts get-caller-identity   # verify active identity
 ```
 
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_PROFILE`, and `AWS_DEFAULT_REGION` are exported by `moza use`.
@@ -116,14 +156,15 @@ aws sts get-caller-identity        # verify active identity
 For OCI:
 
 ```bash
-oci iam user get --user-id <ocid>  # uses OCI_CLI_PROFILE / OCI_CLI_CONFIG_FILE
+$MOZA exec work-foo -- oci iam user get --user-id <ocid>   # uses OCI_CLI_PROFILE / OCI_CLI_CONFIG_FILE
 ```
 
 `OCI_CLI_PROFILE` and `OCI_CLI_CONFIG_FILE` are exported by `moza use`.
 
 ## Important rules
 
-- **Never paste resolved tokens into the conversation.** Use shell expansion (`$GH_TOKEN`, `$(moza token google)`) so the token resolves at execution time and never appears in tool-call arguments.
+- **Never assume a profile is still active.** Environment set by an earlier tool call is gone (see *Activation pattern*). Every invocation must carry its own identity — via `moza exec`, an `eval` in that same invocation, or `--profile`. A command that "worked a moment ago" is not evidence the profile is still set.
+- **Never paste resolved tokens into the conversation.** Use shell expansion (`$GH_TOKEN`, `$($MOZA token google --profile <p>)`) so the token resolves at execution time and never appears in tool-call arguments.
 - **Always activate a profile via `eval "$(moza use <profile>)"` or the `moza-use` wrapper — never run `moza use` bare.** As an extra safety net `moza use` writes exports to a 0600 ephemeral file and only prints a `source …; rm …` one-liner, so a missed `eval` no longer leaks tokens to stdout. On a real TTY `moza use` refuses outright (use `moza-use` or `eval`).
 - **Never run `moza login` yourself to enter a secret.** The agent's shell is non-interactive, so you would have to put the secret in the command — which lands in the session transcript and shell history. Instead:
   - Tell the user to run the `moza login <profile> --service ...` command **themselves** in their own terminal (the hidden `getpass` prompt keeps it out of argv/history), **or**

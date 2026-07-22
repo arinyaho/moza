@@ -186,6 +186,70 @@ def test_use_print_flag_overrides_tty_guard(runner, moza_cfg, mocker, tmp_path, 
     assert "ghp_xxx" not in result.output
 
 
+def test_exec_removes_ephemeral_files_after_child_exits(
+    runner, moza_cfg, mocker, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://slack"
+    # A slack workspace guarantees build_env writes an ephemeral token file,
+    # so the assertions below can't pass vacuously.
+    runner.invoke(
+        main,
+        ["login", "demo", "--service", "slack", "--workspace", "acme"],
+        input="y\nxoxp-secret\n",
+    )
+
+    backend.get.return_value = b"xoxp-secret"
+    seen: dict = {}
+
+    def fake_call(argv, env=None):
+        path = Path(env["MOZA_SLACK_TOKENS"])
+        seen["path"] = path
+        seen["existed"] = path.exists()
+        seen["body"] = path.read_text() if seen["existed"] else ""
+        return 0
+
+    mocker.patch("moza.cli.subprocess.call", side_effect=fake_call)
+    result = runner.invoke(main, ["exec", "demo", "--", "true"])
+    assert result.exit_code == 0, result.output
+
+    # The child really did get a plaintext credential file...
+    assert seen["existed"]
+    assert "xoxp-secret" in seen["body"]
+    # ...and nothing survives the exec.
+    assert not seen["path"].exists()
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
+def test_exec_removes_ephemeral_files_when_child_fails(
+    runner, moza_cfg, mocker, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.return_value = "ref://slack"
+    runner.invoke(
+        main,
+        ["login", "demo", "--service", "slack", "--workspace", "acme"],
+        input="y\nxoxp-secret\n",
+    )
+
+    backend.get.return_value = b"xoxp-secret"
+    written: list[Path] = []
+
+    def boom(argv, env=None):
+        written.append(Path(env["MOZA_SLACK_TOKENS"]))
+        raise KeyboardInterrupt
+
+    mocker.patch("moza.cli.subprocess.call", side_effect=boom)
+    result = runner.invoke(main, ["exec", "demo", "--", "true"])
+    assert result.exit_code != 0
+    assert written and not written[0].exists()
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
 def test_unset_emits_unsets(runner, moza_cfg):
     runner.invoke(main, ["init"], input="3\nmoza-\n")
     result = runner.invoke(main, ["unset"])
@@ -213,6 +277,88 @@ def test_token_google_prints_access_token(runner, moza_cfg, mocker):
     result = runner.invoke(main, ["token", "google"], env={"MOZA_PROFILE": "personal", "MOZA_CONFIG": str(moza_cfg)})
     assert result.exit_code == 0
     assert "ya29-access" in result.output
+
+
+def test_token_google_accepts_explicit_profile_without_env(runner, moza_cfg, mocker, monkeypatch):
+    """`moza token` must work without an ambient MOZA_PROFILE.
+
+    AI agent harnesses (Claude Code, Codex) start a fresh shell per tool call, so
+    env vars set by a previous `eval "$(moza use ...)"` are gone by the next call.
+    Without an explicit --profile the agent has no reliable way to mint a token.
+    """
+    # CliRunner's env= overlays os.environ rather than replacing it, so an
+    # exported MOZA_PROFILE on the developer's machine would otherwise mask
+    # whether --profile did any work at all.
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.side_effect = ["ref://oauth", "ref://refresh"]
+    backend.get.side_effect = lambda r: {
+        "ref://oauth": b"csec",
+        "ref://refresh": b"refresh-zzz",
+    }[r]
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("moza.cli.exchange_refresh_token", return_value="ya29-access")
+
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "google",
+         "--email", "me@x.com", "--client-id", "cid"],
+        input="y\ncsec\n",
+    )
+
+    result = runner.invoke(
+        main,
+        ["token", "google", "--profile", "personal"],
+        env={"MOZA_CONFIG": str(moza_cfg)},
+    )
+    assert result.exit_code == 0
+    assert "ya29-access" in result.output
+
+
+def test_token_google_explicit_profile_beats_env(runner, moza_cfg, mocker):
+    """--profile must win over a conflicting ambient MOZA_PROFILE.
+
+    The env var is only a fallback (`profile or $MOZA_PROFILE`). MOZA_PROFILE is
+    pinned here to a profile that does not exist, so if --profile were ignored the
+    command would fail with "not found" instead of minting the token.
+    """
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    backend = mocker.patch("moza.cli.load_backend").return_value
+    backend.put.side_effect = ["ref://oauth", "ref://refresh"]
+    backend.get.side_effect = lambda r: {
+        "ref://oauth": b"csec",
+        "ref://refresh": b"refresh-zzz",
+    }[r]
+    mocker.patch("moza.cli.google_installed_app_flow", return_value="refresh-zzz")
+    mocker.patch("moza.cli.exchange_refresh_token", return_value="ya29-access")
+
+    runner.invoke(
+        main,
+        ["login", "personal", "--service", "google",
+         "--email", "me@x.com", "--client-id", "cid"],
+        input="y\ncsec\n",
+    )
+
+    result = runner.invoke(
+        main,
+        ["token", "google", "--profile", "personal"],
+        env={"MOZA_PROFILE": "someone-else", "MOZA_CONFIG": str(moza_cfg)},
+    )
+    assert result.exit_code == 0, result.output
+    assert "ya29-access" in result.output
+    assert "someone-else" not in result.output
+
+
+def test_token_without_profile_or_env_names_both_remedies(runner, moza_cfg, mocker, monkeypatch):
+    """The error must name both remedies: the --profile flag and the eval pattern."""
+    monkeypatch.delenv("MOZA_PROFILE", raising=False)
+    runner.invoke(main, ["init"], input="3\nmoza-\n")
+    result = runner.invoke(main, ["token", "google"], env={"MOZA_CONFIG": str(moza_cfg)})
+    assert result.exit_code != 0
+    assert "--profile" in result.output
+    assert "MOZA_PROFILE" in result.output
+    assert 'eval "$(moza use' in result.output
 
 
 def test_init_non_interactive_keychain(runner, moza_cfg, mocker):

@@ -930,19 +930,40 @@ def exec_cmd(profile_name: str, argv: tuple[str, ...]) -> None:
     if not prof:
         raise click.ClickException(f"profile {profile_name!r} not found")
     backend = load_backend(cfg.secrets_backend)
-    bundle = build_env(prof, backend)
-    env = {**os.environ, **bundle.env}
-    rc = subprocess.call(list(argv), env=env)
+    # `exec` owns the child's whole lifetime, so it also owns the plaintext
+    # credential files build_env drops in $TMPDIR/moza (ADC blob with the
+    # client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
+    # nothing downstream needs them to survive this process — and no shell EXIT
+    # trap fires for an exec-only workflow, since MOZA_PROFILE is only ever set
+    # in the child's environment. Clean up unconditionally: normal exit,
+    # non-zero exit, child killed by a signal, Ctrl-C, or an exception.
+    store = EphemeralStore()
+    try:
+        bundle = build_env(prof, backend, pid=store.pid)
+        env = {**os.environ, **bundle.env}
+        rc = subprocess.call(list(argv), env=env)
+    finally:
+        store.cleanup()
     sys.exit(rc)
 
 
 @main.command("token")
 @click.argument("service", type=click.Choice(["google", "atlassian", "notion"]))
-def token_cmd(service: str) -> None:
+@click.option(
+    "--profile",
+    "profile",
+    default=None,
+    help="Profile to mint for. Defaults to $MOZA_PROFILE. Prefer passing this "
+    "explicitly from an agent, whose shell state does not survive between calls.",
+)
+def token_cmd(service: str, profile: str | None) -> None:
     cfg = _require_config()
-    name = os.environ.get("MOZA_PROFILE")
+    name = profile or os.environ.get("MOZA_PROFILE")
     if not name:
-        raise click.ClickException("MOZA_PROFILE not set; run `eval \"$(moza use <profile>)\"` first")
+        raise click.ClickException(
+            "no profile: pass --profile <name>, or set $MOZA_PROFILE via "
+            'eval "$(moza use <profile>)" in this same shell'
+        )
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
