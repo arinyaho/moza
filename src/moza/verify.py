@@ -160,6 +160,11 @@ def probe_google(
         return ProbeResult("google", configured_email, None, status, f"HTTP {code}")
     except httpx.RequestError as e:
         return ProbeResult("google", configured_email, None, Status.UNREACHABLE, str(e))
-    except _NoEmail as e:
-        return ProbeResult("google", configured_email, None, Status.UNREACHABLE, str(e))
+    except (_NoEmail, ValueError, KeyError) as e:
+        # A malformed provider response — non-JSON body (ValueError from .json()),
+        # or missing access_token/email (KeyError/_NoEmail). The provider was
+        # reached but its answer is unusable, so it is unreachable-for-our-purpose,
+        # never a crash: the never-raises contract is unconditional.
+        return ProbeResult("google", configured_email, None, Status.UNREACHABLE,
+                           f"unexpected provider response: {e}")
     return _compare("google", configured_email, live)

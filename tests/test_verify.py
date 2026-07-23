@@ -163,6 +163,18 @@ class TestGoogle:
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status is Status.UNREACHABLE
 
+    def test_non_json_200_does_not_crash(self, mocker):
+        # A 200 with a non-JSON body (a proxy login page, say) makes resp.json()
+        # raise. The probe must not crash — never-raises is unconditional.
+        import httpx
+        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        resp = httpx.Response(200, text="<html>not json</html>",
+                              request=httpx.Request("GET", "https://x"))
+        mocker.patch("moza.verify.httpx.get", return_value=resp)
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.UNREACHABLE
+        assert r.live is None
+
     def test_userinfo_without_email_does_not_crash(self, mocker):
         # A token minted without the email scope yields a 200 with no "email".
         # The probe must not raise — that breaks the "never raises" contract and
