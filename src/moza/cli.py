@@ -38,7 +38,7 @@ from moza.env import build_env
 from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from moza.oauth import exchange_refresh_token, google_installed_app_flow
 from moza.resolve import AmbiguousScope, resolve_profile
-from moza.verify import Status, probe_aws, probe_github, probe_google
+from moza.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from moza.secret_naming import render_name
 from moza.shell import emit_unset, emit_use
 
@@ -514,18 +514,22 @@ def _whoami_live(cfg: Config, prof: Profile) -> None:
         bundle = build_env(prof, backend, pid=store.pid)
         env = {**os.environ, **bundle.env}
 
+        # Each probe is wrapped so an unexpected failure in one is reported, not
+        # allowed to crash the whole check and hide the others.
         results = []
         if prof.github:
-            results.append(probe_github(prof.github.username, env))
+            results.append(run_probe_safely(
+                "github", lambda: probe_github(prof.github.username, env)))
         if prof.aws:
-            results.append(probe_aws(prof.aws.profile, env))
+            results.append(run_probe_safely(
+                "aws", lambda: probe_aws(prof.aws.profile, env)))
         if prof.google and prof.google.refresh_token_ref and prof.google.oauth_client_secret_ref:
-            results.append(probe_google(
+            results.append(run_probe_safely("google", lambda: probe_google(
                 prof.google.email,
                 prof.google.oauth_client_id,
                 backend.get(prof.google.oauth_client_secret_ref).decode("utf-8"),
                 backend.get(prof.google.refresh_token_ref).decode("utf-8"),
-            ))
+            )))
     finally:
         store.cleanup()
 

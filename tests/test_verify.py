@@ -61,6 +61,14 @@ class TestGithub:
         r = probe_github("octocat", {"GH_TOKEN": "x"})
         assert r.status is Status.UNAVAILABLE
 
+    def test_non_executable_gh_does_not_crash(self, mocker):
+        # A present-but-non-executable gh raises PermissionError (an OSError).
+        # The probe must not crash — one broken tool must not hide the others.
+        self._gh(mocker, raises=PermissionError(13, "Permission denied"))
+        r = probe_github("octocat", {"GH_TOKEN": "x"})
+        assert r.status in (Status.UNAVAILABLE, Status.UNREACHABLE)
+        assert r.live is None
+
     def test_probe_runs_under_the_supplied_env(self, mocker):
         run = self._gh(mocker, stdout=b"octocat\n")
         probe_github("octocat", {"GH_TOKEN": "profile-token"})
@@ -187,3 +195,30 @@ class TestGoogle:
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status in (Status.UNREACHABLE, Status.UNAUTHORIZED)
         assert r.live is None
+
+    def test_non_object_json_200_does_not_crash(self, mocker):
+        # A 200 body of `null` (a proxy or a misbehaving endpoint) makes
+        # resp.json() return None; None.get(...) raises AttributeError, which is
+        # neither ValueError nor KeyError. The probe must still not crash.
+        import httpx
+        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        resp = httpx.Response(200, json=None,
+                              request=httpx.Request("GET", "https://x"))
+        mocker.patch("moza.verify.httpx.get", return_value=resp)
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.UNREACHABLE
+        assert r.live is None
+
+
+def test_run_probe_safely_never_propagates():
+    """The backstop: any exception a probe fails to classify becomes an
+    UNREACHABLE result, so one broken probe cannot crash --live."""
+    from moza.verify import Status, run_probe_safely
+
+    def boom():
+        raise RuntimeError("something a probe forgot to catch")
+
+    r = run_probe_safely("google", boom)
+    assert r.status is Status.UNREACHABLE
+    assert r.service == "google"
+    assert "something a probe forgot" in r.detail

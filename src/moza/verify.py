@@ -90,10 +90,31 @@ def _run_probe(service: str, cmd: list[str], env: dict[str, str]) -> tuple[str |
     except subprocess.TimeoutExpired:
         return None, ProbeResult(service, None, None, Status.UNREACHABLE,
                                  f"{cmd[0]} timed out")
+    except OSError as e:
+        # Present but not runnable — a non-executable file on PATH
+        # (PermissionError), too many open files, etc. Not installed-enough to
+        # probe, so treat it as the tool being unavailable rather than crash.
+        return None, ProbeResult(service, None, None, Status.UNAVAILABLE,
+                                 f"could not run {cmd[0]}: {e}")
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", "replace").strip()
         return None, _classify_cli_failure(service, stderr)
     return proc.stdout.decode("utf-8", "replace").strip(), None
+
+
+def run_probe_safely(service: str, fn) -> ProbeResult:
+    """Call a probe and guarantee it returns a ProbeResult.
+
+    Each probe classifies its own expected failures. This is the backstop for an
+    unexpected one — the whole point of `--live` is that one dead service does
+    not hide the others, so a probe must never take the run down. A surprise here
+    is reported as UNREACHABLE (could-not-check), which does not fail the gate.
+    """
+    try:
+        return fn()
+    except Exception as e:  # noqa: BLE001 — a probe must not propagate
+        return ProbeResult(service, None, None, Status.UNREACHABLE,
+                           f"probe error: {e}")
 
 
 def probe_github(configured_username: str | None, env: dict[str, str]) -> ProbeResult:
@@ -160,11 +181,13 @@ def probe_google(
         return ProbeResult("google", configured_email, None, status, f"HTTP {code}")
     except httpx.RequestError as e:
         return ProbeResult("google", configured_email, None, Status.UNREACHABLE, str(e))
-    except (_NoEmail, ValueError, KeyError) as e:
-        # A malformed provider response — non-JSON body (ValueError from .json()),
-        # or missing access_token/email (KeyError/_NoEmail). The provider was
-        # reached but its answer is unusable, so it is unreachable-for-our-purpose,
-        # never a crash: the never-raises contract is unconditional.
+    except (_NoEmail, ValueError, KeyError, TypeError, AttributeError) as e:
+        # A malformed provider response: non-JSON body (ValueError from .json()),
+        # a JSON non-object like `null` (TypeError on [], AttributeError on
+        # .get()), or a 200 missing access_token/email (KeyError/_NoEmail). The
+        # provider was reached but its answer is unusable, so it is
+        # unreachable-for-our-purpose, never a crash — the never-raises contract
+        # is unconditional.
         return ProbeResult("google", configured_email, None, Status.UNREACHABLE,
                            f"unexpected provider response: {e}")
     return _compare("google", configured_email, live)
