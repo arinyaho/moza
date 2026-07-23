@@ -79,6 +79,31 @@ TOKEN=$(moza token google --profile personal) && curl -s -H "Authorization: Bear
 If a sequence genuinely needs one shell, keep the `eval` and the commands in a single
 invocation. See the skill's *Activation pattern* section.
 
+## Verify the live identity before something destructive
+
+`moza whoami` prints what the config says a profile is — fast, offline, no network. `moza
+whoami --live` goes further: it asks GitHub, AWS, and Google who the profile *actually*
+authenticates as and compares that to the config.
+
+```bash
+moza whoami personal            # offline: what the profile claims to be
+moza whoami --live personal     # verified: who the providers say you are
+```
+
+`--live` exits non-zero on a mismatch (wrong identity) or a dead credential (revoked or
+expired token), and those are reported distinctly since they need different remedies. A
+provider that could not be reached is shown but does not fail the check.
+
+Two limits worth knowing before you rely on the exit code as a gate: **AWS is reported, not
+verified** — a profile name is not an ARN, so there is no configured value to compare and a
+wrong-but-valid AWS account will not trip the gate; and **slack/atlassian/notion/oci are not
+probed yet**, so `--live` lists them as unchecked rather than pretending it verified them.
+The gate is trustworthy for GitHub and Google. Chain it before anything you cannot take back:
+
+```bash
+moza whoami --live work && moza exec work -- gh pr merge 123
+```
+
 ## Cross-identity one-off
 
 ```bash

@@ -38,6 +38,7 @@ from moza.env import build_env
 from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from moza.oauth import exchange_refresh_token, google_installed_app_flow
 from moza.resolve import AmbiguousScope, resolve_profile
+from moza.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from moza.secret_naming import render_name
 from moza.shell import emit_unset, emit_use
 
@@ -468,7 +469,12 @@ def status_cmd() -> None:
 
 @main.command("whoami")
 @click.argument("profile", required=False)
-def whoami_cmd(profile: str | None) -> None:
+@click.option(
+    "--live", is_flag=True,
+    help="Ask each provider who the profile actually authenticates as, and "
+    "compare to the config. Exits non-zero on any mismatch or dead credential.",
+)
+def whoami_cmd(profile: str | None, live: bool) -> None:
     cfg = _require_config()
     name = profile or os.environ.get("MOZA_PROFILE")
     if not name:
@@ -476,6 +482,11 @@ def whoami_cmd(profile: str | None) -> None:
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
+
+    if live:
+        _whoami_live(cfg, prof)
+        return
+
     click.echo(json.dumps({
         "name": prof.name,
         "google": prof.google.email if prof.google else None,
@@ -486,6 +497,95 @@ def whoami_cmd(profile: str | None) -> None:
         "atlassian": {"email": prof.atlassian.email, "base_url": prof.atlassian.base_url} if prof.atlassian else None,
         "notion": True if prof.notion else None,
     }, indent=2))
+
+
+def _whoami_live(cfg: Config, prof: Profile) -> None:
+    """Probe each configured provider for its live identity and report it beside
+    the configured value. A mismatch or a dead credential is a real problem and
+    exits non-zero, so the command can gate a destructive action chained after
+    it; a provider that could not be reached is surfaced but does not fail."""
+    backend = load_backend(cfg.secrets_backend)
+    # build_env writes plaintext credential files (Google ADC, ssh key, slack
+    # tokens) to $TMPDIR/moza keyed by this process's pid. Like exec/run, this
+    # command owns their whole lifetime and must delete them on the way out —
+    # otherwise a verification command leaves credentials on disk.
+    store = EphemeralStore()
+    try:
+        bundle = build_env(prof, backend, pid=store.pid)
+        env = {**os.environ, **bundle.env}
+
+        # Each probe is wrapped so an unexpected failure in one is reported, not
+        # allowed to crash the whole check and hide the others.
+        results = []
+        if prof.github:
+            results.append(run_probe_safely(
+                "github", lambda: probe_github(prof.github.username, env)))
+        if prof.aws:
+            results.append(run_probe_safely(
+                "aws", lambda: probe_aws(prof.aws.profile, env)))
+        if prof.google and prof.google.refresh_token_ref and prof.google.oauth_client_secret_ref:
+            results.append(run_probe_safely("google", lambda: probe_google(
+                prof.google.email,
+                prof.google.oauth_client_id,
+                backend.get(prof.google.oauth_client_secret_ref).decode("utf-8"),
+                backend.get(prof.google.refresh_token_ref).decode("utf-8"),
+            )))
+    finally:
+        store.cleanup()
+
+    if not results:
+        raise click.ClickException(
+            f"profile {prof.name!r} has no provider that supports live "
+            "verification (github, aws, or google)"
+        )
+
+    # Services this profile has but --live did not check. Naming them keeps a
+    # clean report from reading as "everything verified" when it did not.
+    # google belongs here too: a gcloud-login-only google (no client-secret /
+    # refresh-token ref) fails the probe guard above, and the refresh-token probe
+    # structurally cannot verify it — so it must be named, not silently dropped.
+    probed = {r.service for r in results}
+    configured_services = set()
+    if prof.google:
+        configured_services.add("google")
+    if prof.slack:
+        configured_services.add("slack")
+    if prof.oci:
+        configured_services.add("oci")
+    if prof.atlassian:
+        configured_services.add("atlassian")
+    if prof.notion:
+        configured_services.add("notion")
+    unchecked = sorted(configured_services - probed)
+
+    click.echo(f"profile {prof.name!r} — live identity check\n")
+    width = max(len(r.service) for r in results)
+    for r in results:
+        if r.status is Status.UNCOMPARABLE:
+            # No configured value to match against (AWS: a profile name is not an
+            # ARN), so this reports the live caller — it does not verify it.
+            configured = "(reported, not verified)"
+        elif r.configured is not None:
+            configured = r.configured
+        else:
+            configured = "—"
+        live_str = r.live if r.live is not None else "—"
+        line = (f"  {r.service:<{width}}  {r.status.value.upper():<12} "
+                f"configured={configured}  live={live_str}")
+        if r.detail and r.status in (Status.UNAUTHORIZED, Status.UNREACHABLE, Status.UNAVAILABLE):
+            line += f"\n  {'':<{width}}  {r.detail}"
+        click.echo(line)
+
+    if unchecked:
+        click.echo(f"\nnot checked (no live probe yet): {', '.join(unchecked)}")
+
+    problems = [r for r in results if r.status in (Status.MISMATCH, Status.UNAUTHORIZED)]
+    if problems:
+        services = ", ".join(r.service for r in problems)
+        raise click.ClickException(
+            f"live identity check failed for: {services}. "
+            "The active credentials do not match this profile, or are dead."
+        )
 
 
 def _require_config() -> Config:
