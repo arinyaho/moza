@@ -54,6 +54,17 @@ class TestExpandScope:
         monkeypatch.setenv("HOME", "/Users/me")
         assert expand_scope("*/Projects/acme") == "*/Projects/acme"
 
+    def test_literalizes_a_glob_from_a_variable_value(self, monkeypatch):
+        """A glob character arriving through a variable's *value* is escaped so
+        fnmatch treats it literally — zsh has no GLOB_SUBST, so the value is a
+        literal in the `case` pattern, not a wildcard. `[*]` is fnmatch for a
+        literal `*`. The glob the user wrote literally in the scope is untouched
+        (covered by test_leaves_ordinary_globs_alone)."""
+        monkeypatch.setenv("STARVAR", "*")
+        monkeypatch.setenv("QVAR", "a?b")
+        assert expand_scope("$STARVAR/Projects/acme") == "[*]/Projects/acme"
+        assert expand_scope("$QVAR/x") == "a[?]b/x"
+
     def test_leaves_an_undefined_variable_literal(self, monkeypatch):
         """zsh would expand it away and leave the far broader '/Projects/acme'.
         Silently widening a scope is how credentials get misrouted, so an unset
@@ -114,6 +125,16 @@ class TestResolveExpandedScopes:
         p = profiles(prof("work", "$HOME/Projects/acme"))
         assert resolve_profile(p, "/Users/me/Projects/acme/src") == "work"
         assert resolve_profile(p, "/Users/other/Projects/acme") is None
+
+    def test_glob_in_a_variable_value_does_not_become_a_wildcard(self, monkeypatch):
+        """A scope of `$STARVAR/Projects/acme` with STARVAR='*' must match a
+        directory literally named '*', i.e. nothing real — not every client tree.
+        Before the fix, fnmatch honoured the injected '*' as a wildcard and the
+        scope claimed a live directory that the ambient `case` block (literal,
+        per zsh's no-GLOB_SUBST default) matched nothing for."""
+        monkeypatch.setenv("STARVAR", "*")
+        p = profiles(prof("work", "$STARVAR/Projects/acme"))
+        assert resolve_profile(p, "/srv/clients/Projects/acme") is None
 
     def test_arbitrary_variable_scope(self, monkeypatch):
         monkeypatch.setenv("MOZA_TEST_ROOT", "/srv/clients")
