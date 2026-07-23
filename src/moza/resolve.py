@@ -13,6 +13,7 @@ where zsh expands them in the `case` pattern `moza env sync` generates.
 from __future__ import annotations
 
 import fnmatch
+import glob
 import os
 import re
 
@@ -54,11 +55,21 @@ def _expand_vars(match: str) -> str:
     would be empty. `os.path.expandvars` cannot express that exception: it skips
     an unset name but expands a set-but-empty one away, which is the same
     widening by a different route (`WORK_ROOT=` in a dotfile, or
-    `WORK_ROOT="$SOMETHING_UNSET"` in a wrapper)."""
+    `WORK_ROOT="$SOMETHING_UNSET"` in a wrapper).
+
+    A glob metacharacter (`*`, `?`, `[`) that arrives *in a value* is escaped, so
+    `fnmatch` treats it literally. zsh does not set GLOB_SUBST by default, so a
+    value like `*` from `$STARVAR` is a literal `*` in the `case` pattern `moza
+    env sync` generates — it matches a directory named `*`, i.e. nothing real.
+    Left unescaped, `fnmatch` would honour it as a wildcard and match a live tree
+    for identity resolution while the ambient block matched nothing — silently
+    widening a scope, which is how credentials get misrouted. Glob characters the
+    user writes *literally in the scope* are not touched; only ones that come in
+    through a variable's value are escaped, which is exactly zsh's split."""
 
     def sub(m: re.Match[str]) -> str:
         value = os.environ.get(m.group(1) or m.group(2))
-        return value if value else m.group(0)
+        return glob.escape(value) if value else m.group(0)
 
     return _VAR_RE.sub(sub, match)
 
@@ -92,6 +103,11 @@ def expand_scope(match: str) -> str:
 
     Only `$VAR` and `${VAR}` are recognized; any other `$`-form is left untouched
     rather than rejected.
+
+    A glob character (`*`, `?`, `[`) coming from a variable's *value* is treated
+    literally, not as a wildcard, matching zsh's default (no GLOB_SUBST): the
+    substitution is expansion, not pattern injection. Glob characters written
+    literally in the scope itself keep their wildcard meaning. See `_expand_vars`.
     """
     return _expand_vars(_expand_user(match))
 
