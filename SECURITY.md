@@ -118,7 +118,6 @@ The `env-<random>.sh` file deserves its own note, since it holds every exported 
 
 These are real and currently unfixed. They are tracked, and listed here rather than omitted.
 
-- **`moza use`'s credential files are attributed to a process that has already exited**, so a garbage collection triggered by an unrelated shell can delete files a live session is still pointing at. The effect is breakage, not disclosure.
 - **`moza env sync` rewrites `~/.zshenv` atomically**, which replaces the file and normalizes its mode to 0600. Content outside `moza`'s marked region is preserved, but hard links, ACLs and extended attributes on that file are not.
 - **`$MOZA_CONFIG` is honoured without validation**, so anything able to set that variable redirects the whole configuration.
 - **`--secret-cmd` runs its argument through a shell.** It is yours to supply, so it crosses no privilege boundary, but it is an execution path in a credential tool.

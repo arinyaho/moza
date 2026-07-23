@@ -17,7 +17,9 @@ moza-use() {
     return 2
   fi
   local exports
-  exports="$(command moza use "$1")" || return $?
+  # $$ is this shell's pid (unchanged inside the command substitution), so the
+  # ephemeral files live as long as this shell rather than the moza process.
+  exports="$(command moza use --owner-pid $$ "$1")" || return $?
   eval "$exports"
 }
 

@@ -926,7 +926,11 @@ def _stdout_is_tty() -> bool:
               help="Force emitting the loader to stdout even if stdout is a TTY. "
                    "Use only when you understand the snippet sources an env file "
                    "and won't paste the path anywhere it shouldn't go.")
-def use_cmd(profile_name: str, force_print: bool) -> None:
+@click.option("--owner-pid", type=int, default=None,
+              help="PID that owns the ephemeral files' lifetime. The moza-use "
+                   "wrapper passes $$ (the calling shell) so the files survive as "
+                   "long as that shell — not just this short-lived process.")
+def use_cmd(profile_name: str, force_print: bool, owner_pid: int | None) -> None:
     if _stdout_is_tty() and not force_print:
         raise click.ClickException(
             "stdout is a TTY — refusing to emit the env loader.\n"
@@ -942,7 +946,12 @@ def use_cmd(profile_name: str, force_print: bool) -> None:
     if not prof:
         raise click.ClickException(f"profile {profile_name!r} not found")
     backend = load_backend(cfg.secrets_backend)
-    bundle = build_env(prof, backend)
+    # Key the ephemeral files to the owner (the calling shell, via the wrapper's
+    # $$) rather than this process. `use` deliberately does NOT clean them up —
+    # the shell sources them after we exit — so their lifetime must be the
+    # shell's. Attributed to this short-lived process instead, gc would see a
+    # dead pid the instant we return and delete credentials still in use.
+    bundle = build_env(prof, backend, pid=owner_pid)
     sys.stdout.write(emit_use(bundle))
 
 

@@ -311,6 +311,58 @@ def test_use_routes_secrets_through_ephemeral_file(runner, moza_cfg, mocker, tmp
     assert "export GH_TOKEN='ghp_xxx'" in body
 
 
+def _use_setup(runner, mocker, tmp_path, monkeypatch, *, slack=True):
+    """A profile that makes build_env write an ephemeral file, with a scoped
+    TMPDIR so the files land under tmp_path/moza."""
+    from moza.config import (BackendConfig, Config, Profile, SecretNaming,
+                             SlackWorkspace, GitHubService, save_config)
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    ws = [SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="ref://s")] if slack else []
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"personal": Profile(
+            name="personal",
+            github=GitHubService(username="me", host="github.com", token_ref="ref://gh"),
+            slack=ws,
+        )},
+    ))
+    mocker.patch("moza.cli.load_backend").return_value.get.return_value = b"xoxp-secret"
+
+
+def test_use_attributes_files_to_the_owner_pid(runner, tmp_path, monkeypatch, mocker):
+    """--owner-pid keys the ephemeral files to the calling shell, not the
+    short-lived moza process. The wrapper passes $$ so the files live as long as
+    the shell that sourced them — otherwise gc, seeing moza's already-dead pid,
+    deletes credentials the shell is still using."""
+    _use_setup(runner, mocker, tmp_path, monkeypatch)
+    result = runner.invoke(main, ["use", "personal", "--print", "--owner-pid", "999999"])
+    assert result.exit_code == 0, result.output
+    files = list((tmp_path / "moza").iterdir())
+    # Every ephemeral file (slack token map, env loader) is keyed to 999999.
+    keyed = [f for f in files if f.name.startswith("999999-")]
+    assert keyed, f"no files attributed to the owner pid: {[f.name for f in files]}"
+
+
+def test_use_leaves_the_files_on_disk_for_the_shell_to_source(runner, tmp_path, monkeypatch, mocker):
+    """The activation contract: unlike exec/run, `use` must NOT clean up — the
+    calling shell sources these after the process exits. A well-meaning cleanup
+    added to use_cmd would break activation silently; this pins against it."""
+    _use_setup(runner, mocker, tmp_path, monkeypatch)
+    result = runner.invoke(main, ["use", "personal", "--print", "--owner-pid", "999999"])
+    assert result.exit_code == 0, result.output
+    # The credential files (keyed to the owner pid) must survive — a cleanup
+    # added to use_cmd would delete exactly these, which is what breaks
+    # activation. Checking the pid-keyed files, not just "any file", is what
+    # makes this bite: the env loader has a different name and would survive a
+    # pid-scoped cleanup, hiding the break.
+    remaining = [f.name for f in (tmp_path / "moza").iterdir()]
+    assert any(n.startswith("999999-") for n in remaining), \
+        f"use must leave its owner-pid credential files on disk; found {remaining}"
+
+
 def test_use_refuses_when_stdout_is_a_tty(runner, moza_cfg, mocker, monkeypatch):
     runner.invoke(main, ["init"], input="3\nmoza-\n")
     backend = mocker.patch("moza.cli.load_backend").return_value
