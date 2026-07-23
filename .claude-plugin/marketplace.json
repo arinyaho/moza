@@ -8,7 +8,7 @@
   },
   "plugins": [
     {
-      "name": "moza",
+      "name": "mien",
       "description": "Multi-identity credential router for Google, GitHub, Slack, Atlassian, Notion, AWS, and OCI \u2014 activate the right account in this shell without polluting global state.",
       "author": {
         "name": "arinyaho"
@@ -16,11 +16,11 @@
       "category": "development",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/arinyaho/moza",
-        "path": "plugins/moza",
+        "url": "https://github.com/arinyaho/mien",
+        "path": "plugins/mien",
         "ref": "main"
       },
-      "homepage": "https://github.com/arinyaho/moza"
+      "homepage": "https://github.com/arinyaho/mien"
     }
   ]
 }

@@ -7,7 +7,7 @@ from .base import BackendError, SecretNotFound
 
 
 class KeyringBackend:
-    def __init__(self, service_prefix: str = "moza-") -> None:
+    def __init__(self, service_prefix: str = "mien-") -> None:
         self.service_prefix = service_prefix
 
     def get(self, ref: str) -> bytes:

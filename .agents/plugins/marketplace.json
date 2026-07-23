@@ -1,14 +1,14 @@
 {
   "name": "arinyaho",
   "interface": {
-    "displayName": "moza"
+    "displayName": "mien"
   },
   "plugins": [
     {
-      "name": "moza",
+      "name": "mien",
       "source": {
         "source": "local",
-        "path": "./plugins/moza"
+        "path": "./plugins/mien"
       },
       "policy": {
         "installation": "AVAILABLE",

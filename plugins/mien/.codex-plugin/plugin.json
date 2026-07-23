@@ -1,13 +1,13 @@
 {
-  "name": "moza",
+  "name": "mien",
   "version": "0.5.0",
   "description": "Multi-identity credential router for Google, GitHub, Slack, Atlassian, Notion, AWS, and OCI — activate the right account in this shell without polluting global state.",
   "author": {
     "name": "arinyaho",
     "email": "arinyaho@gmail.com"
   },
-  "homepage": "https://github.com/arinyaho/moza",
-  "repository": "https://github.com/arinyaho/moza",
+  "homepage": "https://github.com/arinyaho/mien",
+  "repository": "https://github.com/arinyaho/mien",
   "license": "MIT",
   "keywords": [
     "identity",
@@ -23,15 +23,15 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "moza",
+    "displayName": "mien",
     "shortDescription": "Switch identities for Google, GitHub, Slack, Atlassian, and Notion",
-    "longDescription": "Use moza to activate the right identity in this shell. Each profile bundles Google (Gmail/Calendar/Drive + GCP), GitHub, Slack workspaces, Atlassian, and Notion credentials. Credentials stay in your vault; the agent never sees raw tokens.",
+    "longDescription": "Use mien to activate the right identity in this shell. Each profile bundles Google (Gmail/Calendar/Drive + GCP), GitHub, Slack workspaces, Atlassian, and Notion credentials. Credentials stay in your vault; the agent never sees raw tokens.",
     "developerName": "arinyaho",
     "category": "Developer Tools",
     "capabilities": [
       "Interactive"
     ],
-    "websiteURL": "https://github.com/arinyaho/moza",
+    "websiteURL": "https://github.com/arinyaho/mien",
     "defaultPrompt": [
       "Switch to my work account",
       "Use my personal Google identity",

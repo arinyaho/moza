@@ -7,7 +7,7 @@ shell and in an agent harness that starts a fresh shell for every command.
 
 The one thing it does read from the environment is what the shell would read from
 it anyway: `~` and `$VAR` inside a scope, expanded by `expand_scope` at the point
-where zsh expands them in the `case` pattern `moza env sync` generates.
+where zsh expands them in the `case` pattern `mien env sync` generates.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import glob
 import os
 import re
 
-from moza.config import Profile
+from mien.config import Profile
 
 # `$VAR` / `${VAR}`, with the same name characters `os.path.expandvars` accepts.
 # The braced form is tried first so `${VAR}` is not read as `$VAR` plus braces.
@@ -35,9 +35,9 @@ def match_base(match: str) -> str:
 
     Strips a trailing '/*' or '/' so that a scope covers the directory itself and
     everything beneath it. Mirrors the `case "$PWD/" in <base>/*)` form emitted by
-    `moza env sync`, so ambient env and identity agree on where a scope ends.
+    `mien env sync`, so ambient env and identity agree on where a scope ends.
 
-    Normalization only — deliberately no expansion. `moza env sync` writes the
+    Normalization only — deliberately no expansion. `mien env sync` writes the
     scope into the generated script as written and lets zsh expand `~` and `$VAR`
     when the `case` runs, which keeps the script valid after HOME changes and keeps
     the sync-time environment out of a file that is read in every shell. Identity
@@ -59,7 +59,7 @@ def _expand_vars(match: str) -> str:
 
     A glob metacharacter (`*`, `?`, `[`) that arrives *in a value* is escaped, so
     `fnmatch` treats it literally. zsh does not set GLOB_SUBST by default, so a
-    value like `*` from `$STARVAR` is a literal `*` in the `case` pattern `moza
+    value like `*` from `$STARVAR` is a literal `*` in the `case` pattern `mien
     env sync` generates — it matches a directory named `*`, i.e. nothing real.
     Left unescaped, `fnmatch` would honour it as a wildcard and match a live tree
     for identity resolution while the ambient block matched nothing — silently
@@ -137,7 +137,7 @@ def resolve_profile(profiles: dict[str, Profile], path: str) -> str | None:
     `path` is supplied by the caller rather than read here, so the answer depends
     only on the arguments. Scopes are expanded (`expand_scope`) and then normalized
     (`match_base`) so that a scope means the same directory tree here as it does in
-    the zsh `case` that `moza env sync` generates from it.
+    the zsh `case` that `mien env sync` generates from it.
 
     Raises AmbiguousScope when two profiles claim it with equal specificity;
     guessing between them would misroute credentials silently.

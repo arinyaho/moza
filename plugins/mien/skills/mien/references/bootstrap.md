@@ -1,13 +1,13 @@
 # Bootstrap
 
-Run `moza init` and answer prompts. Per-backend setup:
+Run `mien init` and answer prompts. Per-backend setup:
 
 ## GCP Secret Manager
 
 Requires `gcloud` and a project with Secret Manager API enabled.
 
 ```bash
-# Pick the BOOTSTRAP_EMAIL whose Secret Manager you'll seed `moza` from.
+# Pick the BOOTSTRAP_EMAIL whose Secret Manager you'll seed `mien` from.
 # Pick the SECRETS_PROJECT (a project owned by that account) where secrets will live.
 
 # 1) Enable Secret Manager on that project, AS that account
@@ -15,14 +15,14 @@ gcloud services enable secretmanager.googleapis.com \
   --project="$SECRETS_PROJECT" \
   --account="$BOOTSTRAP_EMAIL"
 
-# 2) Set ADC for that account (this is the only ADC `moza` will read globally)
+# 2) Set ADC for that account (this is the only ADC `mien` will read globally)
 gcloud auth application-default login --account="$BOOTSTRAP_EMAIL"
 
 # 3) Run init — supplies project ID + bootstrap email; verifies connectivity
-moza init
+mien init
 
 # 4) Re-verify any time
-moza doctor
+mien doctor
 ```
 
 ### Two gcloud "accounts" — don't confuse them
@@ -32,7 +32,7 @@ moza doctor
 | Layer | Set with | Used by |
 |---|---|---|
 | **CLI account** | `gcloud auth login <EMAIL>` | `gcloud projects list`, `gcloud services enable`, `bq`, `gsutil` |
-| **ADC** | `gcloud auth application-default login --account=<EMAIL>` | Python `google-cloud-*` libraries, `moza`'s Secret Manager access |
+| **ADC** | `gcloud auth application-default login --account=<EMAIL>` | Python `google-cloud-*` libraries, `mien`'s Secret Manager access |
 
 So:
 
@@ -42,11 +42,11 @@ So:
   curl -s -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" \
     https://cloudresourcemanager.googleapis.com/v1/projects | jq '.projects[].projectId'
   ```
-- The bootstrap ADC at `~/.config/gcloud/application_default_credentials.json` is the *only* ADC `moza` ever reads from disk. Per-profile ADCs are synthesized on the fly from refresh tokens at `moza use` time and written to ephemeral files pointed to by `GOOGLE_APPLICATION_CREDENTIALS`. The global ADC location is never overwritten by `moza`.
+- The bootstrap ADC at `~/.config/gcloud/application_default_credentials.json` is the *only* ADC `mien` ever reads from disk. Per-profile ADCs are synthesized on the fly from refresh tokens at `mien use` time and written to ephemeral files pointed to by `GOOGLE_APPLICATION_CREDENTIALS`. The global ADC location is never overwritten by `mien`.
 
 ### Project ID, not project name
 
-`moza init` rejects values containing spaces or uppercase letters because GCP project IDs are lowercase, hyphenated, often with a numeric suffix (e.g., `my-first-project-12345`). The display name (e.g., "My First Project") is different. Find the ID with:
+`mien init` rejects values containing spaces or uppercase letters because GCP project IDs are lowercase, hyphenated, often with a numeric suffix (e.g., `my-first-project-12345`). The display name (e.g., "My First Project") is different. Find the ID with:
 
 ```bash
 gcloud projects list --account="$BOOTSTRAP_EMAIL"
@@ -59,8 +59,8 @@ The `PROJECT_ID` column is what you want.
 Requires `~/.oci/config` with API key PEM, and a Vault + Compartment created in the OCI console.
 
 ```bash
-moza init  # pick (2), supply vault OCID, compartment OCID, region
-moza doctor
+mien init  # pick (2), supply vault OCID, compartment OCID, region
+mien doctor
 ```
 
 ## macOS Keychain
@@ -68,8 +68,8 @@ moza doctor
 Zero setup beyond a logged-in user.
 
 ```bash
-moza init  # pick (3), service prefix defaults to "moza-"
-moza doctor
+mien init  # pick (3), service prefix defaults to "mien-"
+mien doctor
 ```
 
 ## keyring (Linux Secret Service / Windows Credential Locker)
@@ -77,6 +77,6 @@ moza doctor
 Free, no cloud, no macOS. Requires a running desktop Secret Service (GNOME Keyring, KWallet, or Windows Credential Locker). Does NOT work on headless servers.
 
 ```bash
-moza init  # pick (4), service prefix defaults to "moza-"
-moza doctor
+mien init  # pick (4), service prefix defaults to "mien-"
+mien doctor
 ```

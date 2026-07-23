@@ -7,14 +7,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from moza.config import Profile, config_path
-from moza.resolve import _VAR_RE, match_base
+from mien.config import Profile, config_path
+from mien.resolve import _VAR_RE, match_base
 
-HEADER = "# >>> moza ambient env (generated — do not edit; run `moza env sync`) >>>"
-FOOTER = "# <<< moza ambient env <<<"
+HEADER = "# >>> mien ambient env (generated — do not edit; run `mien env sync`) >>>"
+FOOTER = "# <<< mien ambient env <<<"
 
-ZSHENV_BEGIN = "# >>> moza ambient (zshenv) >>>"
-ZSHENV_END = "# <<< moza ambient (zshenv) <<<"
+ZSHENV_BEGIN = "# >>> mien ambient (zshenv) >>>"
+ZSHENV_END = "# <<< mien ambient (zshenv) <<<"
 
 # Parameters that already hold a NON-EMPTY value at the moment `~/.zshenv` is
 # read, so a scope referring to one expands as written.
@@ -67,7 +67,7 @@ ZSHENV_AVAILABLE_VARS = frozenset({
     # `~/.zshenv` is read by — the same reason TTY is off the list.
     #
     # TMPDIR is the same class of hazard, subtler: launchd sets it per-user on
-    # macOS, but stock sshd and a default Linux PAM do not, and moza pins no
+    # macOS, but stock sshd and a default Linux PAM do not, and mien pins no
     # platform. Resting an available-guarantee on one OS is exactly the silent
     # false negative this set exists to avoid — a `$TMPDIR/...` scope would
     # collapse to `/*` with no warning in a Linux ssh session — so TMPDIR is off
@@ -81,7 +81,7 @@ def unexpandable_scope_vars(match: str) -> list[str]:
     `~/.zshenv`, in order of first appearance.
 
     Only `$VAR` / `${VAR}` are recognized — the same forms identity resolution
-    expands (`moza.resolve`), so both sides agree on what counts as a reference.
+    expands (`mien.resolve`), so both sides agree on what counts as a reference.
     """
     seen: list[str] = []
     for m in _VAR_RE.finditer(match):

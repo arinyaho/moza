@@ -1,7 +1,7 @@
 import pytest
 
-from moza.config import BackendConfig, Config, GitHubService, Profile, SecretNaming
-from moza.manifest import (
+from mien.config import BackendConfig, Config, GitHubService, Profile, SecretNaming
+from mien.manifest import (
     MANIFEST_SECRET_NAME,
     is_cloud_backend,
     pull_manifest,
@@ -35,8 +35,8 @@ def _cfg(type_="gcp_secret_manager") -> Config:
         secrets_backend=BackendConfig(type=type_, options={"project": "p1"}),
         bootstrap={"gcp_account": "me@x.com"},
         secret_naming=SecretNaming(
-            default="moza-{profile}-{service}-{kind}",
-            slack_token="moza-{profile}-slack-{workspace}-token",
+            default="mien-{profile}-{service}-{kind}",
+            slack_token="mien-{profile}-slack-{workspace}-token",
         ),
         profiles={"work": Profile(name="work",
                                   github=GitHubService(username="u", host="github.com",

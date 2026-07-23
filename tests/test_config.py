@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from moza.config import (
+from mien.config import (
     BackendConfig,
     Config,
     GitHubService,
@@ -20,30 +20,30 @@ from moza.config import (
 
 
 def test_config_path_uses_env_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "custom.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "custom.json"))
     assert config_path() == tmp_path / "custom.json"
 
 
 def test_config_path_default(monkeypatch, tmp_path):
-    monkeypatch.delenv("MOZA_CONFIG", raising=False)
+    monkeypatch.delenv("MIEN_CONFIG", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert config_path() == tmp_path / ".config" / "moza" / "config.json"
+    assert config_path() == tmp_path / ".config" / "mien" / "config.json"
 
 
 def test_load_config_missing_returns_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "nope.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "nope.json"))
     assert load_config() is None
 
 
 def test_save_then_load_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "c.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "c.json"))
     cfg = Config(
         schema_version=1,
-        secrets_backend=BackendConfig(type="macos_keychain", options={"service_prefix": "moza-"}),
+        secrets_backend=BackendConfig(type="macos_keychain", options={"service_prefix": "mien-"}),
         bootstrap={},
         secret_naming=SecretNaming(
-            default="moza-{profile}-{service}-{kind}",
-            slack_token="moza-{profile}-slack-{workspace}-token",
+            default="mien-{profile}-{service}-{kind}",
+            slack_token="mien-{profile}-slack-{workspace}-token",
         ),
         profiles={
             "personal": Profile(
@@ -52,14 +52,14 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
                     email="me@example.com",
                     oauth_client_id="cid",
                     oauth_client_secret_ref=None,
-                    refresh_token_ref="moza-personal-google-refresh",
+                    refresh_token_ref="mien-personal-google-refresh",
                     adc_ref=None,
                     gcloud_config_name="personal",
                     default_project=None,
                     gcloud_login_required=False,
                 ),
-                github=GitHubService(username="me", host="github.com", token_ref="moza-personal-github-token"),
-                slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="moza-personal-slack-team-a-token")],
+                github=GitHubService(username="me", host="github.com", token_ref="mien-personal-github-token"),
+                slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="mien-personal-slack-team-a-token")],
             )
         },
     )
@@ -70,7 +70,7 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
 
 def test_save_creates_parent_dir_and_chmods_600(monkeypatch, tmp_path):
     target = tmp_path / "deep" / "nested" / "config.json"
-    monkeypatch.setenv("MOZA_CONFIG", str(target))
+    monkeypatch.setenv("MIEN_CONFIG", str(target))
     cfg = Config(
         schema_version=1,
         secrets_backend=BackendConfig(type="macos_keychain", options={}),
@@ -85,7 +85,7 @@ def test_save_creates_parent_dir_and_chmods_600(monkeypatch, tmp_path):
 
 def test_load_rejects_unknown_schema_version(monkeypatch, tmp_path):
     p = tmp_path / "c.json"
-    monkeypatch.setenv("MOZA_CONFIG", str(p))
+    monkeypatch.setenv("MIEN_CONFIG", str(p))
     p.write_text(json.dumps({"$schema_version": 99, "secrets_backend": {"type": "macos_keychain"}, "profiles": {}}))
     with pytest.raises(ValueError, match="schema_version"):
         load_config()
@@ -97,8 +97,8 @@ def _cfg() -> Config:
         secrets_backend=BackendConfig(type="gcp_secret_manager", options={"project": "p1"}),
         bootstrap={"gcp_account": "me@x.com"},
         secret_naming=SecretNaming(
-            default="moza-{profile}-{service}-{kind}",
-            slack_token="moza-{profile}-slack-{workspace}-token",
+            default="mien-{profile}-{service}-{kind}",
+            slack_token="mien-{profile}-slack-{workspace}-token",
         ),
         profiles={
             "work": Profile(
@@ -131,7 +131,7 @@ def test_deserialize_rejects_bad_schema_version():
 
 
 def test_project_env_round_trips():
-    from moza.config import ProjectEnvScope
+    from mien.config import ProjectEnvScope
     cfg = Config(
         schema_version=1,
         secrets_backend=BackendConfig(type="macos_keychain", options={}),

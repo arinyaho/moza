@@ -4,45 +4,45 @@ import os
 import secrets as _secrets
 from pathlib import Path
 
-from moza.env import EnvBundle
+from mien.env import EnvBundle
 
-# The shell wrappers, as one canonical source. `moza shell-init` prints this so a
-# user can wire it up with `eval "$(moza shell-init)"` — no repo checkout needed,
+# The shell wrappers, as one canonical source. `mien shell-init` prints this so a
+# user can wire it up with `eval "$(mien shell-init)"` — no repo checkout needed,
 # which is the whole point: the CLI installs from a git URL and this comes with
 # it. zsh and bash share the body; only the header comment differs.
 _SHELL_WRAPPERS = """\
-moza-use() {
+mien-use() {
   if [ -z "$1" ]; then
-    echo "usage: moza-use <profile>" >&2
+    echo "usage: mien-use <profile>" >&2
     return 2
   fi
   local exports
   # $$ is this shell's pid (unchanged inside the command substitution), so the
-  # ephemeral files live as long as this shell rather than the moza process.
-  exports="$(command moza use --owner-pid $$ "$1")" || return $?
+  # ephemeral files live as long as this shell rather than the mien process.
+  exports="$(command mien use --owner-pid $$ "$1")" || return $?
   eval "$exports"
 }
 
-moza-unset() {
+mien-unset() {
   local clears
-  clears="$(command moza unset)" || return $?
+  clears="$(command mien unset)" || return $?
   eval "$clears"
 }
 
-__moza_atexit() {
-  if [ -n "$MOZA_PROFILE" ]; then
-    command moza doctor --gc >/dev/null 2>&1 || true
+__mien_atexit() {
+  if [ -n "$MIEN_PROFILE" ]; then
+    command mien doctor --gc >/dev/null 2>&1 || true
   fi
 }
 
-trap __moza_atexit EXIT
+trap __mien_atexit EXIT
 """
 
 _SUPPORTED_SHELLS = ("zsh", "bash")
 
 
 def render_shell_init(shell: str) -> str:
-    """The shell wrappers (`moza-use`, `moza-unset`, the exit-trap GC) for eval.
+    """The shell wrappers (`mien-use`, `mien-unset`, the exit-trap GC) for eval.
 
     zsh and bash take the same body — POSIX `[ ]` tests, `local`, and an EXIT
     trap all work in both. Kept as one string so the two cannot drift.
@@ -51,19 +51,19 @@ def render_shell_init(shell: str) -> str:
         raise ValueError(
             f"unsupported shell {shell!r}; expected one of {', '.join(_SUPPORTED_SHELLS)}"
         )
-    header = f"# moza shell integration — eval \"$(moza shell-init --shell {shell})\"\n"
+    header = f"# mien shell integration — eval \"$(mien shell-init --shell {shell})\"\n"
     return header + _SHELL_WRAPPERS
 
 
 KNOWN_VARS = [
-    "MOZA_PROFILE",
-    "MOZA_EPHEMERAL_DIR",
+    "MIEN_PROFILE",
+    "MIEN_EPHEMERAL_DIR",
     "CLOUDSDK_ACTIVE_CONFIG_NAME",
     "CLOUDSDK_CORE_PROJECT",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "GH_TOKEN",
-    "MOZA_SLACK_TOKENS",
-    "MOZA_SLACK_DEFAULT_TOKEN",
+    "MIEN_SLACK_TOKENS",
+    "MIEN_SLACK_DEFAULT_TOKEN",
     "AWS_PROFILE",
     "AWS_DEFAULT_REGION",
     "AWS_ACCESS_KEY_ID",
@@ -84,7 +84,7 @@ def _shell_quote(value: str) -> str:
 
 def _env_script_dir() -> Path:
     tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-    root = tmpdir / "moza"
+    root = tmpdir / "mien"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -94,13 +94,13 @@ def write_env_script(bundle: EnvBundle) -> Path:
 
     The file is named env-<hex>.sh so EphemeralStore.gc() — which only sweeps
     PID-prefixed files — leaves it alone. The eval'd one-liner unlinks the
-    file after sourcing; orphans are swept by `moza doctor --gc`.
+    file after sourcing; orphans are swept by `mien doctor --gc`.
 
     The script first `unset`s every KNOWN_VARS name, then re-exports only what
     this profile defines. Without the scrub, switching profiles in a shell that
     already activated one would leave the previous profile's variables set — a
-    stale `GH_TOKEN` still exported while `moza status` reports the new profile
-    as active. Unset-then-export makes `moza use <p>` yield exactly `<p>`'s
+    stale `GH_TOKEN` still exported while `mien status` reports the new profile
+    as active. Unset-then-export makes `mien use <p>` yield exactly `<p>`'s
     identity, independent of whatever was active before.
     """
     root = _env_script_dir()

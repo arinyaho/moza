@@ -1,8 +1,8 @@
 import re
 from pathlib import Path
 
-from moza.env import EnvBundle
-from moza.shell import emit_unset, emit_use
+from mien.env import EnvBundle
+from mien.shell import emit_unset, emit_use
 
 
 def _parse_script_path(out: str) -> Path:
@@ -17,11 +17,11 @@ def test_emit_use_does_not_leak_secrets_to_stdout(tmp_path, monkeypatch):
     bundle = EnvBundle(
         profile_name="personal",
         env={
-            "MOZA_PROFILE": "personal",
+            "MIEN_PROFILE": "personal",
             "GH_TOKEN": "ghp_xx'yy",
-            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/moza/x y.json",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/mien/x y.json",
         },
-        ephemeral_files=[Path("/tmp/moza/x y.json")],
+        ephemeral_files=[Path("/tmp/mien/x y.json")],
     )
     out = emit_use(bundle)
 
@@ -42,9 +42,9 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
     bundle = EnvBundle(
         profile_name="personal",
         env={
-            "MOZA_PROFILE": "personal",
+            "MIEN_PROFILE": "personal",
             "GH_TOKEN": "ghp_xx'yy",
-            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/moza/x y.json",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/mien/x y.json",
         },
     )
     out = emit_use(bundle)
@@ -55,22 +55,22 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
     assert mode == 0o600, oct(mode)
 
     body = path.read_text()
-    assert "export MOZA_PROFILE='personal'" in body
+    assert "export MIEN_PROFILE='personal'" in body
     assert "GH_TOKEN='ghp_xx'\"'\"'yy'" in body
-    assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/moza/x y.json'" in body
+    assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/mien/x y.json'" in body
 
 
 def test_emit_use_scrubs_stale_vars_before_exporting(tmp_path, monkeypatch):
     """Switching profiles must not leave the previous profile's variables set.
     The sourced script unsets every KNOWN_VARS name before exporting only what
     the new profile defines, so a var the new profile omits (here AWS_* and
-    ATLASSIAN_*) is cleared rather than left dangling from an earlier `moza use`.
+    ATLASSIAN_*) is cleared rather than left dangling from an earlier `mien use`.
     The unset must precede the exports, or it would wipe the values it just set."""
-    from moza.shell import KNOWN_VARS
+    from mien.shell import KNOWN_VARS
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     bundle = EnvBundle(
         profile_name="personal",
-        env={"MOZA_PROFILE": "personal", "GH_TOKEN": "ghp_new"},
+        env={"MIEN_PROFILE": "personal", "GH_TOKEN": "ghp_new"},
     )
     body = _parse_script_path(emit_use(bundle)).read_text()
 
@@ -88,14 +88,14 @@ def test_emit_use_scrubs_stale_vars_before_exporting(tmp_path, monkeypatch):
 def test_emit_unset_lists_known_vars():
     out = emit_unset()
     for var in [
-        "MOZA_PROFILE",
-        "MOZA_EPHEMERAL_DIR",
+        "MIEN_PROFILE",
+        "MIEN_EPHEMERAL_DIR",
         "CLOUDSDK_ACTIVE_CONFIG_NAME",
         "CLOUDSDK_CORE_PROJECT",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GH_TOKEN",
-        "MOZA_SLACK_TOKENS",
-        "MOZA_SLACK_DEFAULT_TOKEN",
+        "MIEN_SLACK_TOKENS",
+        "MIEN_SLACK_DEFAULT_TOKEN",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
     ]:
@@ -103,12 +103,12 @@ def test_emit_unset_lists_known_vars():
 
 
 def test_known_vars_includes_atlassian():
-    from moza.shell import KNOWN_VARS
+    from mien.shell import KNOWN_VARS
     assert "ATLASSIAN_EMAIL" in KNOWN_VARS
     assert "ATLASSIAN_API_TOKEN" in KNOWN_VARS
     assert "ATLASSIAN_BASE_URL" in KNOWN_VARS
 
 
 def test_known_vars_includes_notion():
-    from moza.shell import KNOWN_VARS
+    from mien.shell import KNOWN_VARS
     assert "NOTION_TOKEN" in KNOWN_VARS
