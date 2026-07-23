@@ -341,7 +341,7 @@ def init_cmd(
                 first = next(iter(remote.profiles))
                 click.echo(
                     f'Imported {len(remote.profiles)} profiles. '
-                    f'Try: eval "$(moza use {first})"'
+                    f'Try: eval "$(moza use --owner-pid $$ {first})"  (or: moza-use {first})'
                 )
                 return
 
@@ -938,7 +938,7 @@ def use_cmd(profile_name: str, force_print: bool, owner_pid: int | None) -> None
             "Use the wrapper (recommended):\n"
             f"  moza-use {profile_name}\n\n"
             "Or eval directly:\n"
-            f'  eval "$(moza use {profile_name})"\n\n'
+            f'  eval "$(moza use --owner-pid $$ {profile_name})"\n\n'
             "If you really need raw output, pass --print."
         )
     cfg = _require_config()
@@ -1243,7 +1243,7 @@ def token_cmd(service: str, profile: str | None) -> None:
     if not name:
         raise click.ClickException(
             "no profile: pass --profile <name>, or set $MOZA_PROFILE via "
-            'eval "$(moza use <profile>)" in this same shell'
+            'eval "$(moza use --owner-pid $$ <profile>)" in this same shell'
         )
     prof = cfg.profiles.get(name)
     if not prof:
