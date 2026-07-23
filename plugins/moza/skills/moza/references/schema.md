@@ -109,11 +109,13 @@ before `~/.zshrc` and `~/.zprofile`.** Anything the user exports from their own
 dotfiles is therefore unset at match time and expands to nothing, with the
 consequences described under `default_for` above: `$WORK_ROOT/*` becomes `/*`
 and applies that scope's env — `AWS_PROFILE` included — in every directory. Only
-parameters that already exist that early (`$HOME`, `$USER`, `$TMPDIR` and the
-like, set by zsh itself or inherited from the login process) are safe; `~` is
-safe too, since tilde expansion consults the password database. `moza env sync`
-prints a warning naming the profile and scope for any other reference, and still
-writes the file — an existing working config is not broken by the check.
+parameters that already exist that early (`$HOME`, `$USER` and the like, set by
+zsh itself or inherited from the login process) are safe; `~` is safe too, since
+tilde expansion consults the password database. `$TMPDIR` is deliberately *not*
+treated as safe — macOS launchd sets it, but stock sshd and a default Linux PAM
+do not, and moza pins no platform. `moza env sync` prints a warning naming the
+profile and scope for any other reference, and still writes the file — an
+existing working config is not broken by the check.
 
 ## Reserved backend secret name
 
