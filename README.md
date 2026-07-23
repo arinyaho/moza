@@ -32,10 +32,17 @@ A second shell can run `eval "$(moza use work)"` independently — activation to
 ### CLI
 
 ```bash
-git clone <this-repo> ~/projects/moza
-cd ~/projects/moza
-uv tool install .                       # or: pipx install .
-echo "source $PWD/shell/moza.zsh" >> ~/.zshrc
+uv tool install git+https://github.com/arinyaho/moza    # or: pipx install git+https://github.com/arinyaho/moza
+echo 'eval "$(moza shell-init)"' >> ~/.zshrc            # adds the moza-use / moza-unset wrappers
+```
+
+No checkout needed — both lines install from the repo directly. `moza shell-init` prints the shell wrappers; `eval`-ing it defines `moza-use` and `moza-unset` and wires the exit-trap cleanup. Use `--shell bash` (or add to `~/.bashrc`) for bash.
+
+To hack on it, clone and install from the working tree instead:
+
+```bash
+git clone https://github.com/arinyaho/moza ~/projects/moza
+cd ~/projects/moza && uv tool install --editable .
 ```
 
 ### As an agent skill

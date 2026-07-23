@@ -39,7 +39,7 @@ if command -v moza &>/dev/null; then
 elif [ -f "$HOME/Projects/moza/src/moza/__main__.py" ]; then
   MOZA="uv run --project $HOME/Projects/moza moza"
 else
-  echo "moza not found — clone https://github.com/arinyaho/moza and run: uv tool install ."
+  echo "moza not found — install it (no checkout needed): uv tool install git+https://github.com/arinyaho/moza"
   exit 1
 fi
 ```

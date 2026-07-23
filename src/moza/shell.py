@@ -6,6 +6,53 @@ from pathlib import Path
 
 from moza.env import EnvBundle
 
+# The shell wrappers, as one canonical source. `moza shell-init` prints this so a
+# user can wire it up with `eval "$(moza shell-init)"` — no repo checkout needed,
+# which is the whole point: the CLI installs from a git URL and this comes with
+# it. zsh and bash share the body; only the header comment differs.
+_SHELL_WRAPPERS = """\
+moza-use() {
+  if [ -z "$1" ]; then
+    echo "usage: moza-use <profile>" >&2
+    return 2
+  fi
+  local exports
+  exports="$(command moza use "$1")" || return $?
+  eval "$exports"
+}
+
+moza-unset() {
+  local clears
+  clears="$(command moza unset)" || return $?
+  eval "$clears"
+}
+
+__moza_atexit() {
+  if [ -n "$MOZA_PROFILE" ]; then
+    command moza doctor --gc >/dev/null 2>&1 || true
+  fi
+}
+
+trap __moza_atexit EXIT
+"""
+
+_SUPPORTED_SHELLS = ("zsh", "bash")
+
+
+def render_shell_init(shell: str) -> str:
+    """The shell wrappers (`moza-use`, `moza-unset`, the exit-trap GC) for eval.
+
+    zsh and bash take the same body — POSIX `[ ]` tests, `local`, and an EXIT
+    trap all work in both. Kept as one string so the two cannot drift.
+    """
+    if shell not in _SUPPORTED_SHELLS:
+        raise ValueError(
+            f"unsupported shell {shell!r}; expected one of {', '.join(_SUPPORTED_SHELLS)}"
+        )
+    header = f"# moza shell integration — eval \"$(moza shell-init --shell {shell})\"\n"
+    return header + _SHELL_WRAPPERS
+
+
 KNOWN_VARS = [
     "MOZA_PROFILE",
     "MOZA_EPHEMERAL_DIR",
