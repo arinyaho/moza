@@ -1,0 +1,148 @@
+import subprocess
+
+import pytest
+
+from moza.verify import (
+    Status,
+    probe_aws,
+    probe_github,
+    probe_google,
+)
+
+
+class TestGithub:
+    """`gh api user -q .login` reports who the token actually authenticates as,
+    which is compared to the profile's configured username."""
+
+    def _gh(self, mocker, *, stdout=b"", returncode=0, stderr=b"", raises=None):
+        run = mocker.patch("moza.verify.subprocess.run")
+        if raises is not None:
+            run.side_effect = raises
+        else:
+            run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=returncode, stdout=stdout, stderr=stderr
+            )
+        return run
+
+    def test_match(self, mocker):
+        self._gh(mocker, stdout=b"octocat\n")
+        r = probe_github("octocat", {"GH_TOKEN": "x"})
+        assert r.status is Status.MATCH
+        assert r.live == "octocat"
+        assert r.configured == "octocat"
+
+    def test_mismatch_is_flagged(self, mocker):
+        self._gh(mocker, stdout=b"someone-else\n")
+        r = probe_github("octocat", {"GH_TOKEN": "x"})
+        assert r.status is Status.MISMATCH
+        assert r.live == "someone-else"
+        assert r.configured == "octocat"
+
+    def test_revoked_token_is_unauthorized_not_mismatch(self, mocker):
+        # gh exits non-zero and says so on stderr when the token is bad.
+        self._gh(mocker, returncode=1,
+                 stderr=b"HTTP 401: Bad credentials (https://api.github.com/user)")
+        r = probe_github("octocat", {"GH_TOKEN": "x"})
+        assert r.status is Status.UNAUTHORIZED
+        assert r.live is None
+
+    def test_gh_not_installed_is_unavailable(self, mocker):
+        self._gh(mocker, raises=FileNotFoundError())
+        r = probe_github("octocat", {"GH_TOKEN": "x"})
+        assert r.status is Status.UNAVAILABLE
+
+    def test_probe_runs_under_the_supplied_env(self, mocker):
+        run = self._gh(mocker, stdout=b"octocat\n")
+        probe_github("octocat", {"GH_TOKEN": "profile-token"})
+        assert run.call_args.kwargs["env"]["GH_TOKEN"] == "profile-token"
+
+
+class TestAws:
+    """AWS has no configured subject to compare against — a profile name is not
+    an ARN — so a successful probe reports the live caller as UNCOMPARABLE, not
+    MATCH, while auth and reachability failures are still distinguished."""
+
+    def _aws(self, mocker, *, stdout=b"", returncode=0, stderr=b"", raises=None):
+        run = mocker.patch("moza.verify.subprocess.run")
+        if raises is not None:
+            run.side_effect = raises
+        else:
+            run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=returncode, stdout=stdout, stderr=stderr
+            )
+        return run
+
+    def test_success_is_uncomparable_with_the_live_arn(self, mocker):
+        self._aws(mocker, stdout=b"arn:aws:iam::123456789012:user/dev\n")
+        r = probe_aws("work", {"AWS_PROFILE": "work"})
+        assert r.status is Status.UNCOMPARABLE
+        assert r.live == "arn:aws:iam::123456789012:user/dev"
+        assert r.configured == "work"
+
+    def test_expired_credentials_are_unauthorized(self, mocker):
+        self._aws(mocker, returncode=255,
+                  stderr=b"An error occurred (ExpiredToken) when calling ...")
+        r = probe_aws("work", {"AWS_PROFILE": "work"})
+        assert r.status is Status.UNAUTHORIZED
+
+    def test_aws_not_installed_is_unavailable(self, mocker):
+        self._aws(mocker, raises=FileNotFoundError())
+        r = probe_aws("work", {})
+        assert r.status is Status.UNAVAILABLE
+
+
+class TestGoogle:
+    """Google is checked by minting an access token from the stored refresh
+    token and asking the userinfo endpoint for the email, compared to config."""
+
+    def test_match(self, mocker):
+        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("moza.verify._userinfo_email", return_value="me@example.com")
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.MATCH
+        assert r.live == "me@example.com"
+
+    def test_mismatch(self, mocker):
+        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("moza.verify._userinfo_email", return_value="other@example.com")
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.MISMATCH
+
+    def test_revoked_refresh_token_is_unauthorized(self, mocker):
+        # A revoked refresh token fails at the token exchange with 400
+        # invalid_grant. exchange_refresh_token uses httpx, so the exception is
+        # httpx.HTTPStatusError — not urllib. This is the shape the real code
+        # raises; a smoke test against a live revoked token proved the earlier
+        # urllib-based handling never fired.
+        import httpx
+        resp = httpx.Response(400, request=httpx.Request("POST", "https://x"))
+        mocker.patch(
+            "moza.verify.exchange_refresh_token",
+            side_effect=httpx.HTTPStatusError(
+                "invalid_grant", request=resp.request, response=resp
+            ),
+        )
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.UNAUTHORIZED
+        assert r.live is None
+
+    def test_server_error_is_unreachable_not_unauthorized(self, mocker):
+        import httpx
+        resp = httpx.Response(503, request=httpx.Request("POST", "https://x"))
+        mocker.patch(
+            "moza.verify.exchange_refresh_token",
+            side_effect=httpx.HTTPStatusError(
+                "unavailable", request=resp.request, response=resp
+            ),
+        )
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.UNREACHABLE
+
+    def test_network_failure_is_unreachable(self, mocker):
+        import httpx
+        mocker.patch(
+            "moza.verify.exchange_refresh_token",
+            side_effect=httpx.ConnectError("no route to host"),
+        )
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status is Status.UNREACHABLE

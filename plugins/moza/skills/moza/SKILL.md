@@ -51,6 +51,7 @@ Use `$MOZA` instead of `moza` in all subsequent commands.
 ```
 $MOZA list                          # see profiles
 $MOZA status                        # what is active in *this* shell
+$MOZA whoami [<profile>]            # configured identity; add --live to verify against providers
 $MOZA use <profile>                 # prints a `source …; rm …` loader; eval to activate (same call only)
 $MOZA exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer this
 $MOZA which                         # profile claimed by the current directory
@@ -115,10 +116,19 @@ bq ls -p                          # ditto
 
 Splitting those lines across two tool calls is the bug described above.
 
-**Confirm the identity when the action is destructive or the profile matters.** Fold the
-check into the same invocation as the action, and compare the answer to the login you
-expect — a bare `gh api user` succeeds under *any* valid token, so exit status alone gates
-nothing:
+**Confirm the identity when the action is destructive or the profile matters.** `$MOZA
+whoami --live <profile>` asks each provider who the profile actually authenticates as,
+compares it to the config, and exits non-zero on any mismatch or dead credential — so it
+gates the action when chained before it:
+
+```bash
+$MOZA whoami --live work-foo && $MOZA exec work-foo -- gh pr merge 123
+```
+
+Its exit code is the gate; a wrong live identity or a revoked token stops the `&&`. A
+provider that could not be reached is reported but does not fail the check — could-not-check
+is not the same as wrong. For a single service you can also inline the comparison, since a
+bare `gh api user` succeeds under *any* valid token and exit status alone gates nothing:
 
 ```bash
 [ "$($MOZA run -- gh api user -q .login)" = "expected-login" ] \
