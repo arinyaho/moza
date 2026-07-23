@@ -215,4 +215,5 @@ $MOZA exec work-foo -- oci iam user get --user-id <ocid>   # uses OCI_CLI_PROFIL
 - `references/schema.md` — config file format
 - `references/bootstrap.md` — first-time setup per backend (manual, for users who'd rather type the commands themselves)
 - `references/usage.md` — recipes for common tasks
+- `references/concurrency.md` — what each variable/file isolates vs. shares, and directory-pinned identity rules
 - `references/troubleshooting.md` — common errors
