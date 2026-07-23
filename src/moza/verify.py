@@ -50,6 +50,33 @@ def _compare(service: str, configured: str | None, live: str) -> ProbeResult:
     return ProbeResult(service, configured, live, Status.MISMATCH)
 
 
+# A CLI's stderr is the only thing that distinguishes a rejected credential from
+# an unreachable network — both exit non-zero. These substrings mark the network
+# case for `gh` and `aws`; anything else non-zero is treated as an auth failure.
+# Getting this wrong in the network direction is the costly one: it would fail the
+# gate offline and name the wrong remedy, so the default leans to UNAUTHORIZED
+# (a real problem to surface) only when the text does not look like a network error.
+_NETWORK_ERROR_MARKERS = (
+    "could not connect",
+    "error connecting",
+    "connection refused",
+    "no such host",
+    "temporary failure in name resolution",
+    "network is unreachable",
+    "timed out",
+    "timeout",
+    "dial tcp",
+    "no route to host",
+)
+
+
+def _classify_cli_failure(service: str, stderr: str) -> ProbeResult:
+    lowered = stderr.lower()
+    if any(m in lowered for m in _NETWORK_ERROR_MARKERS):
+        return ProbeResult(service, None, None, Status.UNREACHABLE, stderr)
+    return ProbeResult(service, None, None, Status.UNAUTHORIZED, stderr)
+
+
 def _run_probe(service: str, cmd: list[str], env: dict[str, str]) -> tuple[str | None, ProbeResult | None]:
     """Run a CLI probe under `env`. Returns (stdout_stripped, None) on success,
     or (None, ProbeResult) when the failure is itself the answer."""
@@ -64,8 +91,8 @@ def _run_probe(service: str, cmd: list[str], env: dict[str, str]) -> tuple[str |
         return None, ProbeResult(service, None, None, Status.UNREACHABLE,
                                  f"{cmd[0]} timed out")
     if proc.returncode != 0:
-        return None, ProbeResult(service, None, None, Status.UNAUTHORIZED,
-                                 proc.stderr.decode("utf-8", "replace").strip())
+        stderr = proc.stderr.decode("utf-8", "replace").strip()
+        return None, _classify_cli_failure(service, stderr)
     return proc.stdout.decode("utf-8", "replace").strip(), None
 
 
@@ -89,6 +116,11 @@ def probe_aws(configured_profile: str | None, env: dict[str, str]) -> ProbeResul
     return ProbeResult("aws", configured_profile, live, Status.UNCOMPARABLE)
 
 
+class _NoEmail(Exception):
+    """userinfo returned 200 but no email — e.g. a token minted without the
+    email scope. Raised so probe_google can report it rather than crash."""
+
+
 def _userinfo_email(access_token: str) -> str:
     resp = httpx.get(
         "https://www.googleapis.com/oauth2/v3/userinfo",
@@ -96,7 +128,10 @@ def _userinfo_email(access_token: str) -> str:
         timeout=_PROBE_TIMEOUT,
     )
     resp.raise_for_status()
-    return resp.json()["email"]
+    email = resp.json().get("email")
+    if not email:
+        raise _NoEmail("userinfo response has no email field")
+    return email
 
 
 def probe_google(
@@ -117,8 +152,14 @@ def probe_google(
         live = _userinfo_email(access)
     except httpx.HTTPStatusError as e:
         code = e.response.status_code
-        status = Status.UNAUTHORIZED if 400 <= code < 500 else Status.UNREACHABLE
+        # 429 is a valid credential being rate-limited, not a dead one, so it is
+        # unreachable-for-now rather than unauthorized — only 4xx that is not 429
+        # means the credential itself was rejected.
+        dead = 400 <= code < 500 and code != 429
+        status = Status.UNAUTHORIZED if dead else Status.UNREACHABLE
         return ProbeResult("google", configured_email, None, status, f"HTTP {code}")
     except httpx.RequestError as e:
+        return ProbeResult("google", configured_email, None, Status.UNREACHABLE, str(e))
+    except _NoEmail as e:
         return ProbeResult("google", configured_email, None, Status.UNREACHABLE, str(e))
     return _compare("google", configured_email, live)

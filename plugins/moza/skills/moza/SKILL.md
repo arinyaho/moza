@@ -117,18 +117,21 @@ bq ls -p                          # ditto
 Splitting those lines across two tool calls is the bug described above.
 
 **Confirm the identity when the action is destructive or the profile matters.** `$MOZA
-whoami --live <profile>` asks each provider who the profile actually authenticates as,
-compares it to the config, and exits non-zero on any mismatch or dead credential — so it
-gates the action when chained before it:
+whoami --live <profile>` asks GitHub, AWS, and Google who the profile actually
+authenticates as, compares it to the config, and exits non-zero on any mismatch or dead
+credential — so it gates the action when chained before it:
 
 ```bash
 $MOZA whoami --live work-foo && $MOZA exec work-foo -- gh pr merge 123
 ```
 
-Its exit code is the gate; a wrong live identity or a revoked token stops the `&&`. A
-provider that could not be reached is reported but does not fail the check — could-not-check
-is not the same as wrong. For a single service you can also inline the comparison, since a
-bare `gh api user` succeeds under *any* valid token and exit status alone gates nothing:
+Its exit code is the gate; a wrong live identity or a revoked token stops the `&&`. Caveats
+worth knowing: a provider that could not be reached is reported but does not fail the check
+(could-not-check is not the same as wrong); AWS is reported, not verified, since a profile
+name is not an ARN there is nothing to compare; and slack/atlassian/notion/oci are not
+probed yet, so `--live` names them as unchecked rather than pretending it verified them. For
+a single service you can also inline the comparison, since a bare `gh api user` succeeds
+under *any* valid token and exit status alone gates nothing:
 
 ```bash
 [ "$($MOZA run -- gh api user -q .login)" = "expected-login" ] \

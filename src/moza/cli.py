@@ -505,21 +505,29 @@ def _whoami_live(cfg: Config, prof: Profile) -> None:
     exits non-zero, so the command can gate a destructive action chained after
     it; a provider that could not be reached is surfaced but does not fail."""
     backend = load_backend(cfg.secrets_backend)
-    bundle = build_env(prof, backend)
-    env = {**os.environ, **bundle.env}
+    # build_env writes plaintext credential files (Google ADC, ssh key, slack
+    # tokens) to $TMPDIR/moza keyed by this process's pid. Like exec/run, this
+    # command owns their whole lifetime and must delete them on the way out —
+    # otherwise a verification command leaves credentials on disk.
+    store = EphemeralStore()
+    try:
+        bundle = build_env(prof, backend, pid=store.pid)
+        env = {**os.environ, **bundle.env}
 
-    results = []
-    if prof.github:
-        results.append(probe_github(prof.github.username, env))
-    if prof.aws:
-        results.append(probe_aws(prof.aws.profile, env))
-    if prof.google and prof.google.refresh_token_ref and prof.google.oauth_client_secret_ref:
-        results.append(probe_google(
-            prof.google.email,
-            prof.google.oauth_client_id,
-            backend.get(prof.google.oauth_client_secret_ref).decode("utf-8"),
-            backend.get(prof.google.refresh_token_ref).decode("utf-8"),
-        ))
+        results = []
+        if prof.github:
+            results.append(probe_github(prof.github.username, env))
+        if prof.aws:
+            results.append(probe_aws(prof.aws.profile, env))
+        if prof.google and prof.google.refresh_token_ref and prof.google.oauth_client_secret_ref:
+            results.append(probe_google(
+                prof.google.email,
+                prof.google.oauth_client_id,
+                backend.get(prof.google.oauth_client_secret_ref).decode("utf-8"),
+                backend.get(prof.google.refresh_token_ref).decode("utf-8"),
+            ))
+    finally:
+        store.cleanup()
 
     if not results:
         raise click.ClickException(
@@ -527,16 +535,40 @@ def _whoami_live(cfg: Config, prof: Profile) -> None:
             "verification (github, aws, or google)"
         )
 
+    # Services this profile has but --live cannot check yet. Naming them keeps a
+    # clean report from reading as "everything verified" when it did not.
+    probed = {r.service for r in results}
+    configured_services = set()
+    if prof.slack:
+        configured_services.add("slack")
+    if prof.oci:
+        configured_services.add("oci")
+    if prof.atlassian:
+        configured_services.add("atlassian")
+    if prof.notion:
+        configured_services.add("notion")
+    unchecked = sorted(configured_services - probed)
+
     click.echo(f"profile {prof.name!r} — live identity check\n")
     width = max(len(r.service) for r in results)
     for r in results:
-        configured = r.configured if r.configured is not None else "(nothing to compare)"
+        if r.status is Status.UNCOMPARABLE:
+            # No configured value to match against (AWS: a profile name is not an
+            # ARN), so this reports the live caller — it does not verify it.
+            configured = "(reported, not verified)"
+        elif r.configured is not None:
+            configured = r.configured
+        else:
+            configured = "—"
         live_str = r.live if r.live is not None else "—"
         line = (f"  {r.service:<{width}}  {r.status.value.upper():<12} "
                 f"configured={configured}  live={live_str}")
         if r.detail and r.status in (Status.UNAUTHORIZED, Status.UNREACHABLE, Status.UNAVAILABLE):
             line += f"\n  {'':<{width}}  {r.detail}"
         click.echo(line)
+
+    if unchecked:
+        click.echo(f"\nnot checked (no live probe yet): {', '.join(unchecked)}")
 
     problems = [r for r in results if r.status in (Status.MISMATCH, Status.UNAUTHORIZED)]
     if problems:

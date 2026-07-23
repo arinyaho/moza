@@ -46,6 +46,16 @@ class TestGithub:
         assert r.status is Status.UNAUTHORIZED
         assert r.live is None
 
+    def test_network_failure_is_unreachable_not_unauthorized(self, mocker):
+        # gh also exits non-zero when it cannot reach the network. That is a
+        # could-not-check, NOT a dead credential — misreporting it as
+        # UNAUTHORIZED would fail the gate offline and name the wrong remedy.
+        self._gh(mocker, returncode=1,
+                 stderr=b"error connecting to api.github.com: no such host")
+        r = probe_github("octocat", {"GH_TOKEN": "x"})
+        assert r.status is Status.UNREACHABLE
+        assert r.live is None
+
     def test_gh_not_installed_is_unavailable(self, mocker):
         self._gh(mocker, raises=FileNotFoundError())
         r = probe_github("octocat", {"GH_TOKEN": "x"})
@@ -80,10 +90,16 @@ class TestAws:
         assert r.configured == "work"
 
     def test_expired_credentials_are_unauthorized(self, mocker):
-        self._aws(mocker, returncode=255,
+        self._aws(mocker, returncode=254,
                   stderr=b"An error occurred (ExpiredToken) when calling ...")
         r = probe_aws("work", {"AWS_PROFILE": "work"})
         assert r.status is Status.UNAUTHORIZED
+
+    def test_network_failure_is_unreachable(self, mocker):
+        self._aws(mocker, returncode=255,
+                  stderr=b"Could not connect to the endpoint URL: ...")
+        r = probe_aws("work", {"AWS_PROFILE": "work"})
+        assert r.status is Status.UNREACHABLE
 
     def test_aws_not_installed_is_unavailable(self, mocker):
         self._aws(mocker, raises=FileNotFoundError())
@@ -146,3 +162,16 @@ class TestGoogle:
         )
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status is Status.UNREACHABLE
+
+    def test_userinfo_without_email_does_not_crash(self, mocker):
+        # A token minted without the email scope yields a 200 with no "email".
+        # The probe must not raise — that breaks the "never raises" contract and
+        # takes the whole --live run down.
+        import httpx
+        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        resp = httpx.Response(200, json={"sub": "12345"},
+                              request=httpx.Request("GET", "https://x"))
+        mocker.patch("moza.verify.httpx.get", return_value=resp)
+        r = probe_google("me@example.com", "cid", "csec", "refresh")
+        assert r.status in (Status.UNREACHABLE, Status.UNAUTHORIZED)
+        assert r.live is None

@@ -118,6 +118,60 @@ def test_whoami_live_unauthorized_exits_nonzero(runner, moza_cfg, mocker):
     assert "unauthorized" in result.output.lower()
 
 
+def test_whoami_live_cleans_ephemeral_credential_files(runner, tmp_path, monkeypatch, mocker):
+    """--live builds the profile env, which writes plaintext credential files to
+    $TMPDIR/moza. A verification command must not leave credentials on disk."""
+    from moza.config import (BackendConfig, Config, Profile, SecretNaming,
+                             SlackWorkspace, GitHubService, save_config)
+    from moza.verify import ProbeResult, Status
+    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"personal": Profile(
+            name="personal",
+            github=GitHubService(username="octocat", host="github.com", token_ref="ref://gh"),
+            slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="ref://slack")],
+        )},
+    ))
+    mocker.patch("moza.cli.load_backend").return_value.get.return_value = b"xoxp-secret"
+    mocker.patch("moza.cli.probe_github",
+                 return_value=ProbeResult("github", "octocat", "octocat", Status.MATCH))
+
+    result = runner.invoke(main, ["whoami", "personal", "--live"])
+    assert result.exit_code == 0, result.output
+    # The slack workspace makes build_env write an ephemeral file; it must be gone.
+    assert list((tmp_path / "moza").iterdir()) == []
+
+
+def test_whoami_live_names_unchecked_services(runner, moza_cfg, mocker):
+    """A profile with slack/notion must not read as fully verified when only
+    github was probed."""
+    from moza.config import (BackendConfig, Config, Profile, SecretNaming,
+                             SlackWorkspace, GitHubService, NotionService, save_config)
+    from moza.verify import ProbeResult, Status
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"personal": Profile(
+            name="personal",
+            github=GitHubService(username="octocat", host="github.com", token_ref="ref://gh"),
+            slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="ref://s")],
+            notion=NotionService(api_token_ref="ref://n"),
+        )},
+    ))
+    mocker.patch("moza.cli.build_env").return_value.env = {}
+    mocker.patch("moza.cli.probe_github",
+                 return_value=ProbeResult("github", "octocat", "octocat", Status.MATCH))
+    result = runner.invoke(main, ["whoami", "personal", "--live"])
+    assert result.exit_code == 0, result.output
+    assert "not checked" in result.output.lower()
+    assert "slack" in result.output and "notion" in result.output
+
+
 def test_whoami_live_unreachable_does_not_fail(runner, moza_cfg, mocker):
     """Could-not-check is not the same as wrong. A network blip must not report a
     problem that isn't there — it is surfaced, but does not fail the command."""
