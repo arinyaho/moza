@@ -11,13 +11,13 @@ Multi-identity credential router for Google, GitHub, and Slack — designed for 
 Activate a named identity in your current shell:
 
 ```bash
-eval "$(moza use personal)"
+eval "$(moza use --owner-pid $$ personal)"   # or: moza-use personal (the wrapper passes $$ for you)
 gh pr list                 # uses your personal GitHub
 gcloud projects list       # uses your personal GCP
 TOKEN=$(moza token google) # mint a Gmail/Cal/Drive access token on demand
 ```
 
-A second shell can run `eval "$(moza use work)"` independently — activation touches only that shell. Tokens live in a secrets backend rather than in a dotfile.
+A second shell can run `moza-use work` (or `eval "$(moza use --owner-pid $$ work)"`) independently — activation touches only that shell. Tokens live in a secrets backend rather than in a dotfile.
 
 ## Architecture
 

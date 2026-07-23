@@ -17,6 +17,17 @@ def test_render_shell_init_defines_the_wrappers():
         assert "trap __moza_atexit EXIT" in script
 
 
+def test_moza_use_wrapper_passes_the_owner_pid():
+    """The wrapper is the load-bearing link for persistent human shells: it must
+    invoke `moza use --owner-pid $$` so the ephemeral files are keyed to the
+    calling shell, not moza's already-exited process. Dropping `--owner-pid $$`
+    from the wrapper reintroduces the gc-reclaims-live-credentials bug while every
+    other test stays green (the CLI tests pass an explicit pid), so pin it here."""
+    for shell in ("zsh", "bash"):
+        script = render_shell_init(shell)
+        assert "command moza use --owner-pid $$" in script
+
+
 def test_shell_init_command_prints_the_script():
     result = CliRunner().invoke(main, ["shell-init"])
     assert result.exit_code == 0, result.output

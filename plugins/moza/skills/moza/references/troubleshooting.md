@@ -4,7 +4,7 @@
 |---|---|---|
 | `backend health check failed: PERMISSION_DENIED` (GCP) | Bootstrap account lacks `roles/secretmanager.viewer` | Grant the role on the secrets project |
 | `OAuth completed but no refresh token` | Google did not return a refresh token (account already has consent) | Revoke at myaccount.google.com → re-run `moza login --service google` |
-| `gcloud` still uses old account after `moza use` | Wrapper not sourced; you ran `moza use` instead of `moza-use` | `eval "$(moza use ...)"`, or install the wrappers with `eval "$(moza shell-init)"` |
+| `gcloud` still uses old account after `moza use` | Wrapper not sourced; you ran `moza use` instead of `moza-use` | Install the wrappers with `eval "$(moza shell-init)"` and use `moza-use`, or `eval "$(moza use --owner-pid $$ ...)"` |
 | `gh` acts as the wrong account under `moza exec` | Profile has no GitHub token, so `moza` sets no `GH_TOKEN` and the ambient `GH_TOKEN`/`GITHUB_TOKEN` survives (`exec` overlays, it does not scrub) | `moza login <profile> --service github`, or unset both in the calling shell |
 | `moza run` used the wrong identity, and exited 0 | `MOZA_PROFILE` was inherited from the launching terminal and beats the directory. Common for an agent session started where someone had run `moza-use <profile>`. `moza which` reports it, but only on stderr, and still exits 0 | `moza-unset` in that shell (bare `moza unset` only prints the commands), or name the profile: `moza exec <profile> -- ...` |
 | `moza which` exits 1 with `no profile claims <dir>` | No `default_for` scope covers this directory — or the scope names a variable that is unset or empty, which is left literal on purpose so it matches nothing | Add or widen a `default_for` scope; use a literal path or `~` instead of a variable |

@@ -34,7 +34,7 @@ moza login personal --service notion
 ## Activate (interactive shell)
 
 ```bash
-eval "$(moza use personal)"  # or: moza-use personal
+moza-use personal            # the wrapper keys the ephemeral files to this shell ($$)
 gh pr list
 gcloud projects list
 ```
@@ -157,7 +157,7 @@ gcloud auth application-default set-quota-project <sm-project>
 moza init --backend gcp_secret_manager --project <sm-project> \
   --bootstrap-email <bootstrap-email>
 #   → "Found an existing moza config (N profiles: ...). Import it? [Y/n]"
-eval "$(moza use <profile>)"
+moza-use <profile>
 ```
 
 The commands above are the **GCP Secret Manager** flow; an `oci_vault` backend
