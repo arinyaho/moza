@@ -87,10 +87,13 @@ def test_put_updates_existing_active_secret(clients):
     vault.create_secret.assert_not_called()
 
 
-def test_put_reactivates_a_secret_scheduled_for_deletion(clients):
+def test_put_reactivates_a_secret_scheduled_for_deletion(clients, mocker):
     """`moza logout` schedules deletion; a later `moza login` for the same name
-    must cancel that and update, not create a colliding name."""
+    must cancel that and update, not create a colliding name. Cancellation is an
+    async transition, so the secret must reach ACTIVE before update_secret, which
+    the SDK rejects on a non-ACTIVE secret — so a wait sits between them."""
     _, vault = clients
+    wait = mocker.patch("moza.backends.oci.oci.wait_until")
     pending = _summary("moza-personal-github-token",
                        "ocid1.vaultsecret.oc1..pending", state="PENDING_DELETION")
     vault.list_secrets.return_value.data = [pending]
@@ -99,10 +102,33 @@ def test_put_reactivates_a_secret_scheduled_for_deletion(clients):
     b = OCIVaultBackend(vault_ocid="v", compartment_ocid="c", region="r")
     ref = b.put("moza-personal-github-token", b"ghp_new")
     assert ref == "ocid1.vaultsecret.oc1..pending"
+
     vault.cancel_secret_deletion.assert_called_once_with(
         secret_id="ocid1.vaultsecret.oc1..pending")
+    # The wait for ACTIVE must happen after cancel and before update.
+    wait.assert_called_once()
+    assert wait.call_args.args[2] == "lifecycle_state"
+    assert wait.call_args.args[3] == "ACTIVE"
     vault.update_secret.assert_called_once()
     vault.create_secret.assert_not_called()
+
+
+def test_put_waits_before_update_when_already_cancelling(clients, mocker):
+    """A secret already mid-cancel must not be cancelled again — that is a 409 on
+    a secret not pending deletion — but it still needs the wait before update."""
+    _, vault = clients
+    wait = mocker.patch("moza.backends.oci.oci.wait_until")
+    cancelling = _summary("moza-personal-github-token",
+                          "ocid1.vaultsecret.oc1..canc", state="CANCELLING_DELETION")
+    vault.list_secrets.return_value.data = [cancelling]
+    vault.update_secret.return_value.data = cancelling
+
+    b = OCIVaultBackend(vault_ocid="v", compartment_ocid="c", region="r")
+    b.put("moza-personal-github-token", b"ghp_new")
+
+    vault.cancel_secret_deletion.assert_not_called()
+    wait.assert_called_once()
+    vault.update_secret.assert_called_once()
 
 
 def test_put_ignores_a_deleted_namesake_and_creates(clients):

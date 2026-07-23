@@ -92,7 +92,7 @@ Compromise of the bootstrap credential is equivalent to compromise of every iden
 
 **The manifest.** With a cloud backend, `moza` stores a copy of the configuration as a secret named `moza-config-manifest`, and pushes it after `moza login` and `moza logout`, on a best-effort basis — a failed push is a warning, not an error. `moza init` writes the local config without pushing, and `moza push` is the explicit manual path. It contains references and identifiers only — no secret value — with one exception: values you place in `project_env` are copied verbatim, so a secret typed there is uploaded. Do not put secrets in `project_env`.
 
-Both cloud backends update the manifest in place on each push — a new version of one fixed secret. On OCI a manifest whose deletion was scheduled (by a `logout` that removed the last profile, say) is reactivated automatically the next time it is written, so the copy a second machine pulls tracks your latest config.
+Both cloud backends update the manifest in place on each push — a new version of one fixed secret — so the copy a second machine pulls tracks your latest config. (Nothing deletes the manifest; it is only ever rewritten.)
 
 Two commands adopt that manifest. `moza init --yes` imports it without prompting, and `moza sync` pulls it and replaces the local config — also without prompting under `--yes`. Its interactive confirmation lists only profile *names*, so a changed `project_env` value shows up as `~ change: work` and nothing more. A backend an attacker controls can therefore redefine every profile — including which directories claim which identity, and including the `project_env` values that become executable code — through either path.
 

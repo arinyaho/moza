@@ -21,6 +21,11 @@ from .base import BackendError, BackendUnauthorized, SecretNotFound
 _UPDATABLE = {"ACTIVE", "UPDATING"}
 _REACTIVATABLE = {"PENDING_DELETION", "SCHEDULING_DELETION", "CANCELLING_DELETION"}
 
+# Cap on waiting for a cancelled deletion to return the secret to ACTIVE. The
+# transition is normally seconds; this bounds a stuck one so `moza login` fails
+# with a clear timeout rather than hanging.
+_REACTIVATE_WAIT_SEC = 120
+
 
 class OCIVaultBackend:
     def __init__(
@@ -68,7 +73,15 @@ class OCIVaultBackend:
             if existing is not None:
                 state = existing.lifecycle_state
                 if state in _REACTIVATABLE:
-                    self._vault.cancel_secret_deletion(secret_id=existing.id)
+                    # update_secret requires an ACTIVE secret, and cancellation
+                    # is an async transition (the secret passes through
+                    # CANCELLING_DELETION), so wait for ACTIVE before updating —
+                    # otherwise the update races the cancel and 409s. A secret
+                    # already cancelling must not be cancelled again (that itself
+                    # 409s); it only needs the wait.
+                    if state != "CANCELLING_DELETION":
+                        self._vault.cancel_secret_deletion(secret_id=existing.id)
+                    self._wait_active(existing.id)
                 if state in _UPDATABLE or state in _REACTIVATABLE:
                     self._vault.update_secret(
                         secret_id=existing.id,
@@ -91,6 +104,16 @@ class OCIVaultBackend:
                 raise BackendUnauthorized(str(e)) from e
             raise BackendError(str(e)) from e
         return resp.data.id
+
+    def _wait_active(self, secret_id: str) -> None:
+        """Block until a secret reaches ACTIVE, so a subsequent update_secret is
+        not rejected for a non-ACTIVE state. Bounded so a stuck transition fails
+        loudly rather than hanging."""
+        resp = self._vault.get_secret(secret_id=secret_id)
+        oci.wait_until(
+            self._vault, resp, "lifecycle_state", "ACTIVE",
+            max_wait_seconds=_REACTIVATE_WAIT_SEC,
+        )
 
     def _find_secret(self, name: str):
         """Return the live SecretSummary for an exact name, or None.
