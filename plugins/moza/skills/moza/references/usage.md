@@ -113,10 +113,9 @@ moza exec work -- gh pr list
 ## Adding secrets without leaving a trace
 
 Every `moza login` secret is read via a hidden `getpass` prompt — the value never
-reaches `argv`, shell history, or `ps` on the way *in*. One caveat on the way out:
-the `macos_keychain` backend stores it by passing it to `security(1)` on the command
-line, so for the life of that subprocess it is visible to anything listing your
-processes. The `keyring`, `gcp_secret_manager` and `oci_vault` backends do not. Three ways to supply it:
+reaches `argv`, shell history, or `ps`. Every backend stores it without argv exposure:
+`macos_keychain` and `keyring` through in-process Keychain / Secret Service bindings,
+`gcp_secret_manager` and `oci_vault` over their APIs. Three ways to supply it:
 
 ```bash
 # 1. Interactive (run it yourself, NOT via an agent's non-interactive shell)

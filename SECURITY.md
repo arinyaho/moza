@@ -16,7 +16,7 @@ Everything here is stated against the code. If you find a claim the code does no
 
 **Keeping secrets out of transcripts, shell history, and `ps`.** `moza use` never prints a secret; it writes the exports to a mode-0600 file and prints a one-liner that sources and deletes it. On a real terminal it refuses to run at all unless you pass `--print`. `moza login` reads secrets through a hidden prompt, a `--secret-cmd` reference, or stdin.
 
-*Not protected:* `moza token <service>` prints a token to stdout by design — that is its purpose — and for Atlassian and Notion that token is long-lived, not a short-lived access token. Whatever captures that stdout holds the secret. The `macos_keychain` backend also passes secrets through `security(1)`'s argv on write; see [Known weaknesses](#known-weaknesses).
+*Not protected:* `moza token <service>` prints a token to stdout by design — that is its purpose — and for Atlassian and Notion that token is long-lived, not a short-lived access token. Whatever captures that stdout holds the secret.
 
 **Hiding secrets from an AI agent: NOT a goal.** This is the most important line in this document. `moza` puts credentials into the environment so that ordinary tools pick them up. An agent that can run commands in that environment can read them, and so can every process it starts. If your threat model is a prompt-injected agent exfiltrating a token, `moza` is the wrong layer — you want a credential proxy that never lets the value reach the agent at all. `moza` trades that isolation for working with every CLI and SDK unmodified, and for letting a person choose which identity to act as.
 
@@ -118,7 +118,6 @@ The `env-<random>.sh` file deserves its own note, since it holds every exported 
 
 These are real and currently unfixed. They are tracked, and listed here rather than omitted.
 
-- **The `macos_keychain` backend passes secrets through `security(1)`'s command line on write.** For the duration of that subprocess the plaintext is visible to anything that can list your processes. This contradicts the guarantee the rest of the credential-input path upholds. The `keyring` backend and both cloud backends do not have this problem.
 - **`moza use`'s credential files are attributed to a process that has already exited**, so a garbage collection triggered by an unrelated shell can delete files a live session is still pointing at. The effect is breakage, not disclosure.
 - **`moza env sync` rewrites `~/.zshenv` atomically**, which replaces the file and normalizes its mode to 0600. Content outside `moza`'s marked region is preserved, but hard links, ACLs and extended attributes on that file are not.
 - **`$MOZA_CONFIG` is honoured without validation**, so anything able to set that variable redirects the whole configuration.
