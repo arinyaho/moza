@@ -146,6 +146,38 @@ def test_whoami_live_cleans_ephemeral_credential_files(runner, tmp_path, monkeyp
     assert list((tmp_path / "moza").iterdir()) == []
 
 
+def test_whoami_live_names_google_when_it_cannot_be_probed(runner, moza_cfg, mocker):
+    """A gcloud-login-only google (no client-secret/refresh-token ref) cannot be
+    verified by the refresh-token probe. It must be named as unchecked, not
+    silently dropped — otherwise a clean report gives false confidence that
+    google was verified when it never was."""
+    from moza.config import (BackendConfig, Config, Profile, SecretNaming,
+                             GoogleService, GitHubService, save_config)
+    from moza.verify import ProbeResult, Status
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"personal": Profile(
+            name="personal",
+            github=GitHubService(username="octocat", host="github.com", token_ref="ref://gh"),
+            google=GoogleService(
+                email="me@example.com", oauth_client_id="cid",
+                oauth_client_secret_ref=None, refresh_token_ref="",
+                adc_ref=None, gcloud_config_name="personal",
+                default_project=None, gcloud_login_required=True,
+            ),
+        )},
+    ))
+    mocker.patch("moza.cli.build_env").return_value.env = {}
+    mocker.patch("moza.cli.probe_github",
+                 return_value=ProbeResult("github", "octocat", "octocat", Status.MATCH))
+    result = runner.invoke(main, ["whoami", "personal", "--live"])
+    assert result.exit_code == 0, result.output
+    assert "not checked" in result.output.lower()
+    assert "google" in result.output.lower()
+
+
 def test_whoami_live_names_unchecked_services(runner, moza_cfg, mocker):
     """A profile with slack/notion must not read as fully verified when only
     github was probed."""

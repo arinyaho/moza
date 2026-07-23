@@ -539,10 +539,15 @@ def _whoami_live(cfg: Config, prof: Profile) -> None:
             "verification (github, aws, or google)"
         )
 
-    # Services this profile has but --live cannot check yet. Naming them keeps a
+    # Services this profile has but --live did not check. Naming them keeps a
     # clean report from reading as "everything verified" when it did not.
+    # google belongs here too: a gcloud-login-only google (no client-secret /
+    # refresh-token ref) fails the probe guard above, and the refresh-token probe
+    # structurally cannot verify it — so it must be named, not silently dropped.
     probed = {r.service for r in results}
     configured_services = set()
+    if prof.google:
+        configured_services.add("google")
     if prof.slack:
         configured_services.add("slack")
     if prof.oci:
