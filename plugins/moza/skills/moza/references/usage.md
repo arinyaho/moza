@@ -112,28 +112,59 @@ moza exec work -- gh pr list
 
 ## Adding secrets without leaving a trace
 
-Every `moza login` secret is read via a hidden `getpass` prompt — the value never
-reaches `argv`, shell history, or `ps`. Every backend stores it without argv exposure:
-`macos_keychain` and `keyring` through in-process Keychain / Secret Service bindings,
-`gcp_secret_manager` and `oci_vault` over their APIs. Three ways to supply it:
+Adding a credential mid-task — "the Slack key is in this file", "here's a fresh
+PAT" — is routine. Every `moza login` secret is read without ever touching `argv`,
+shell history, or `ps`: interactively through a hidden `getpass` prompt, or from
+stdin / a helper command. Every backend then stores it without argv exposure too —
+`macos_keychain` and `keyring` through in-process Keychain / Secret Service
+bindings, `gcp_secret_manager` and `oci_vault` over their APIs. Pick the recipe
+that matches where the secret already lives.
+
+### From a file on disk
+
+The secret is sitting in a file (a saved token, an exported key). Redirect the
+file into `--token-stdin` — the path appears in history, the secret does not:
 
 ```bash
-# 1. Interactive (run it yourself, NOT via an agent's non-interactive shell)
-moza login work --service github --username u
-#   → "Paste a GitHub token:" (input hidden, nothing logged)
+moza login work --service slack --workspace team-a --token-stdin < ./slack-key.txt
+moza login work --service github --username u --token-stdin < ~/tokens/gh-work
+```
 
-# 2. From a credential manager — only the *reference* hits history, never the secret
+Delete the file afterward if it was only a hand-off (`rm ./slack-key.txt`); the
+secret now lives in the backend.
+
+### From a credential manager (a reference, not the value)
+
+The secret lives in 1Password, GCP Secret Manager, the macOS Keychain, etc. Pass
+`--secret-cmd` a command that *fetches* it — only the reference reaches history,
+never the secret. `moza` runs the command and reads its stdout:
+
+```bash
 moza login work --service github --username u \
   --secret-cmd 'op read op://Private/github-work/token'
 moza login work --service aws --access-key-id AKIA... \
   --secret-cmd 'gcloud secrets versions access latest --secret=aws-work'
-
-# 3. From a pipe (reference/path in history, not the secret)
-op read op://Private/slack-team-a/token | \
-  moza login work --service slack --workspace team-a --token-stdin
 ```
 
-Google needs two secrets (client secret + refresh token):
+Equivalently, pipe the manager's output into `--token-stdin`
+(`op read … | moza login … --token-stdin`) — same guarantee, the value never
+becomes an argument.
+
+### By hand, in your own terminal
+
+No file, no manager — you have the secret and want to paste it. Run `moza login`
+yourself (**not** through an AI agent's non-interactive shell) and answer the
+hidden prompt:
+
+```bash
+moza login work --service github --username u
+#   → "Paste a GitHub token:" (input hidden, nothing logged)
+```
+
+### Google (two secrets)
+
+Google needs a client secret *and* a refresh token; combine any two mechanisms
+above — here a manager reference for the client secret and a file for the token:
 
 ```bash
 moza login work --service google --email me@x.com --client-id <id> \
@@ -143,8 +174,8 @@ moza login work --service google --email me@x.com --client-id <id> \
 
 Rule of thumb: never type or paste a secret as a CLI argument, and never ask an
 AI agent to run `moza login` for you — its shell can't answer a hidden prompt, so
-the secret would end up in the session transcript. Hand it a `--secret-cmd`
-reference instead.
+the secret would end up in the session transcript. Hand it a file (`--token-stdin
+< path`) or a `--secret-cmd` reference instead.
 
 ## Reuse on a second machine
 
