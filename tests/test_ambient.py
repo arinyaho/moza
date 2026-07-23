@@ -68,7 +68,9 @@ def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
     ("$FOO/$BAR/x", ["FOO", "BAR"]),                  # every offender, in order
     ("$FOO/$FOO/x", ["FOO"]),                         # deduped
     ("$HOME/Projects/acme", []),                      # zsh sets HOME before .zshenv
-    ("$TMPDIR/scratch", []),                          # inherited from the login process
+    ("$TMPDIR/scratch", ["TMPDIR"]),                  # launchd sets it on macOS, but
+                                                      # stock sshd/Linux PAM do not, and
+                                                      # moza pins no platform — so warn
     ("$ZDOTDIR/work", ["ZDOTDIR"]),                   # zsh never sets it; and if the user
                                                       # did, zsh reads $ZDOTDIR/.zshenv, not
                                                       # the ~/.zshenv this code writes to
