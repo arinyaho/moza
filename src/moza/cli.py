@@ -40,7 +40,7 @@ from moza.oauth import exchange_refresh_token, google_installed_app_flow
 from moza.resolve import AmbiguousScope, resolve_profile
 from moza.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from moza.secret_naming import render_name
-from moza.shell import emit_unset, emit_use
+from moza.shell import emit_unset, emit_use, render_shell_init
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -407,6 +407,26 @@ def _set_adc_quota_project(project: str) -> None:
             f"Run manually: gcloud auth application-default set-quota-project {project}",
             err=True,
         )
+
+
+@main.command("shell-init")
+@click.option(
+    "--shell", "shell", default=None,
+    help="Shell dialect (zsh or bash). Defaults to the one $SHELL names.",
+)
+def shell_init_cmd(shell: str | None) -> None:
+    """Print the shell wrappers (`moza-use`, `moza-unset`) for eval.
+
+    Add to your rc file so no repo checkout is needed:
+
+        echo 'eval "$(moza shell-init)"' >> ~/.zshrc
+    """
+    if shell is None:
+        shell = "bash" if os.environ.get("SHELL", "").endswith("bash") else "zsh"
+    try:
+        click.echo(render_shell_init(shell), nl=False)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @main.command("list")
