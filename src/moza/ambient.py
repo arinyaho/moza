@@ -61,11 +61,18 @@ ZSHENV_AVAILABLE_VARS = frozenset({
     # placed in the inherited environment by login / launchd / sshd
     #
     # TERM and LANG are deliberately absent: only a terminal application supplies
-    # them. A launchd-started zsh inherits USER/SHELL/TMPDIR/HOME/LOGNAME/PATH and
-    # neither of those two, and stock sshd forwards neither, so a `$TERM/...` or
+    # them. A launchd-started zsh inherits USER/SHELL/HOME/LOGNAME/PATH and neither
+    # of those two, and stock sshd forwards neither, so a `$TERM/...` or
     # `$LANG/...` scope collapses to `/*` in exactly the non-interactive shells
     # `~/.zshenv` is read by — the same reason TTY is off the list.
-    "USER", "SHELL", "TMPDIR",
+    #
+    # TMPDIR is the same class of hazard, subtler: launchd sets it per-user on
+    # macOS, but stock sshd and a default Linux PAM do not, and moza pins no
+    # platform. Resting an available-guarantee on one OS is exactly the silent
+    # false negative this set exists to avoid — a `$TMPDIR/...` scope would
+    # collapse to `/*` with no warning in a Linux ssh session — so TMPDIR is off
+    # the list and `env sync` warns about it instead.
+    "USER", "SHELL",
 })
 
 
