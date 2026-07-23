@@ -647,12 +647,15 @@ def test_login_github_pat_and_ssh_compose_across_calls(runner, moza_cfg, mocker,
 
 
 def test_preflight_keychain_passes(runner, mocker):
-    mocker.patch("moza.cli.subprocess.run")
+    # Preflight checks the real backend path (in-process Keychain), not the
+    # security CLI — so a reachable Keychain is a healthy backend.
+    mocker.patch("moza.backends.keychain._MacKeyring").return_value.get_password.return_value = None
     result = runner.invoke(main, ["preflight", "--backend", "macos_keychain", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["backend"] == "macos_keychain"
     assert all(c["ok"] for c in payload["checks"])
+    assert any("keychain" in c["check"].lower() for c in payload["checks"])
 
 
 def test_preflight_gcp_reports_missing_pieces(runner, moza_cfg, mocker):

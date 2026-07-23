@@ -3,7 +3,6 @@ from __future__ import annotations
 from moza.config import BackendConfig
 
 from .base import BackendError, BackendUnauthorized, SecretNotFound, SecretsBackend
-from .keychain import MacOSKeychainBackend
 
 __all__ = [
     "BackendError",
@@ -16,6 +15,10 @@ __all__ = [
 
 def load_backend(cfg: BackendConfig) -> SecretsBackend:
     if cfg.type == "macos_keychain":
+        # Imported lazily: keychain.py binds keyring.backends.macOS at module
+        # level, which is macOS-only. A Linux user on the keyring backend must be
+        # able to load_backend without dragging that in.
+        from .keychain import MacOSKeychainBackend
         return MacOSKeychainBackend(service_prefix=cfg.options.get("service_prefix", "moza-"))
     if cfg.type == "gcp_secret_manager":
         from .gcp import GCPSecretManagerBackend

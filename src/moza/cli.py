@@ -1409,11 +1409,14 @@ def preflight_cmd(backend: str, project: str | None, account: str | None, as_jso
             "Create an API key in OCI Console and run `oci setup config`")
 
     elif backend == "macos_keychain":
+        # The backend talks to the Keychain in-process, not via the security CLI,
+        # so check the real path: can it reach the Keychain?
         try:
-            subprocess.run(["security", "list-keychains"], capture_output=True, check=True)
-            add("security CLI", True)
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            add("security CLI", False, "", "macOS only — this backend isn't supported on this OS")
+            load_backend(BackendConfig(type="macos_keychain", options={})).health_check()
+            add("macOS Keychain", True)
+        except Exception as e:
+            add("macOS Keychain", False, str(e),
+                "macOS only — this backend isn't supported on this OS")
 
     if as_json:
         click.echo(json.dumps({"backend": backend, "checks": findings}, indent=2))
