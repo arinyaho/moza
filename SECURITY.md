@@ -59,7 +59,7 @@ Once `moza use` has run in a shell, the first group is readable by that shell an
 
 `moza exec` and `moza run` narrow this considerably — the variables exist only for the duration of one child process — which is why they are the recommended form, especially for agents.
 
-Neither form **scrubs**. The profile's variables are layered over the environment you already had. A profile with no AWS identity leaves an ambient `AWS_ACCESS_KEY_ID` untouched, so the child uses it. If you need certainty about a service the profile does not define, clear it yourself or check with that service's own identity command.
+`moza exec` and `moza run` do not **scrub**. The profile's variables are layered over the environment you already had. A profile with no AWS identity leaves an ambient `AWS_ACCESS_KEY_ID` untouched, so the child uses it. If you need certainty about a service the profile does not define, clear it yourself or check with that service's own identity command. (`moza use` is the exception: it `unset`s every managed variable before re-exporting the profile's, so activating a second profile in a shell replaces the first cleanly rather than layering over it — the child-process forms cannot, since they build the child env from the ambient one.)
 
 ## What stays in your home directory
 
