@@ -95,15 +95,23 @@ def write_env_script(bundle: EnvBundle) -> Path:
     The file is named env-<hex>.sh so EphemeralStore.gc() — which only sweeps
     PID-prefixed files — leaves it alone. The eval'd one-liner unlinks the
     file after sourcing; orphans are swept by `moza doctor --gc`.
+
+    The script first `unset`s every KNOWN_VARS name, then re-exports only what
+    this profile defines. Without the scrub, switching profiles in a shell that
+    already activated one would leave the previous profile's variables set — a
+    stale `GH_TOKEN` still exported while `moza status` reports the new profile
+    as active. Unset-then-export makes `moza use <p>` yield exactly `<p>`'s
+    identity, independent of whatever was active before.
     """
     root = _env_script_dir()
     path = root / f"env-{_secrets.token_hex(8)}.sh"
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        body = "".join(
+        scrub = "unset " + " ".join(KNOWN_VARS) + "\n"
+        exports = "".join(
             f"export {k}={_shell_quote(v)}\n" for k, v in bundle.env.items()
         )
-        os.write(fd, body.encode("utf-8"))
+        os.write(fd, (scrub + exports).encode("utf-8"))
     finally:
         os.close(fd)
     return path

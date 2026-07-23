@@ -60,6 +60,31 @@ def test_emit_use_writes_exports_to_a_0600_env_file(tmp_path, monkeypatch):
     assert "GOOGLE_APPLICATION_CREDENTIALS='/tmp/moza/x y.json'" in body
 
 
+def test_emit_use_scrubs_stale_vars_before_exporting(tmp_path, monkeypatch):
+    """Switching profiles must not leave the previous profile's variables set.
+    The sourced script unsets every KNOWN_VARS name before exporting only what
+    the new profile defines, so a var the new profile omits (here AWS_* and
+    ATLASSIAN_*) is cleared rather than left dangling from an earlier `moza use`.
+    The unset must precede the exports, or it would wipe the values it just set."""
+    from moza.shell import KNOWN_VARS
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    bundle = EnvBundle(
+        profile_name="personal",
+        env={"MOZA_PROFILE": "personal", "GH_TOKEN": "ghp_new"},
+    )
+    body = _parse_script_path(emit_use(bundle)).read_text()
+
+    scrub_line = next(ln for ln in body.splitlines() if ln.startswith("unset "))
+    scrubbed = set(scrub_line.removeprefix("unset ").split())
+    # Every known var is unset up front...
+    assert set(KNOWN_VARS) == scrubbed
+    # ...including ones this profile does not define (would be stale otherwise).
+    assert {"AWS_ACCESS_KEY_ID", "ATLASSIAN_API_TOKEN"} <= scrubbed
+    # ...and the unset happens before any export, so set values survive.
+    assert body.index("unset ") < body.index("export "), body
+    assert "export GH_TOKEN='ghp_new'" in body
+
+
 def test_emit_unset_lists_known_vars():
     out = emit_unset()
     for var in [
