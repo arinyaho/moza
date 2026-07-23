@@ -1,7 +1,7 @@
 import pytest
 
-from moza.config import Profile
-from moza.resolve import AmbiguousScope, expand_scope, match_base, resolve_profile
+from mien.config import Profile
+from mien.resolve import AmbiguousScope, expand_scope, match_base, resolve_profile
 
 
 def prof(name: str, *globs: str) -> Profile:
@@ -14,23 +14,23 @@ def profiles(*ps: Profile) -> dict[str, Profile]:
 
 class TestMatchBase:
     """Where a scope ends must agree with the zsh `case "$PWD/" in base/*)` form
-    that `moza env sync` generates, or ambient env and identity would disagree
+    that `mien env sync` generates, or ambient env and identity would disagree
     about which directories a scope covers. This half is normalization only: the
     generated script keeps the scope as written and lets zsh expand it, so the
     matching side gets that expansion from `expand_scope` instead."""
 
     @pytest.mark.parametrize("raw,expected", [
-        ("*/Projects/moza", "*/Projects/moza"),
-        ("*/Projects/moza/", "*/Projects/moza"),
-        ("*/Projects/moza/*", "*/Projects/moza"),
+        ("*/Projects/mien", "*/Projects/mien"),
+        ("*/Projects/mien/", "*/Projects/mien"),
+        ("*/Projects/mien/*", "*/Projects/mien"),
         ("/", ""),
     ])
     def test_strips_trailing_slash_and_star(self, raw, expected):
         assert match_base(raw) == expected
 
-    @pytest.mark.parametrize("raw", ["~/Projects/moza", "$HOME/Projects/moza"])
+    @pytest.mark.parametrize("raw", ["~/Projects/mien", "$HOME/Projects/mien"])
     def test_does_not_expand_so_env_sync_output_is_unchanged(self, raw, monkeypatch):
-        """`moza env sync` emits this text straight into a zsh `case` pattern, where
+        """`mien env sync` emits this text straight into a zsh `case` pattern, where
         the shell expands it at match time. Expanding here would bake the sync-time
         HOME into a file every shell sources."""
         monkeypatch.setenv("HOME", "/Users/me")
@@ -45,10 +45,10 @@ class TestExpandScope:
 
     def test_expands_tilde_and_variables(self, monkeypatch):
         monkeypatch.setenv("HOME", "/Users/me")
-        monkeypatch.setenv("MOZA_TEST_ROOT", "/srv/clients")
+        monkeypatch.setenv("MIEN_TEST_ROOT", "/srv/clients")
         assert expand_scope("~/Projects/acme") == "/Users/me/Projects/acme"
         assert expand_scope("$HOME/Projects/acme") == "/Users/me/Projects/acme"
-        assert expand_scope("$MOZA_TEST_ROOT/acme") == "/srv/clients/acme"
+        assert expand_scope("$MIEN_TEST_ROOT/acme") == "/srv/clients/acme"
 
     def test_leaves_ordinary_globs_alone(self, monkeypatch):
         monkeypatch.setenv("HOME", "/Users/me")
@@ -69,27 +69,27 @@ class TestExpandScope:
         """zsh would expand it away and leave the far broader '/Projects/acme'.
         Silently widening a scope is how credentials get misrouted, so an unset
         variable stays literal and matches nothing."""
-        monkeypatch.delenv("MOZA_NO_SUCH_VAR", raising=False)
-        assert expand_scope("$MOZA_NO_SUCH_VAR/Projects/acme") == (
-            "$MOZA_NO_SUCH_VAR/Projects/acme"
+        monkeypatch.delenv("MIEN_NO_SUCH_VAR", raising=False)
+        assert expand_scope("$MIEN_NO_SUCH_VAR/Projects/acme") == (
+            "$MIEN_NO_SUCH_VAR/Projects/acme"
         )
 
     @pytest.mark.parametrize("raw", [
-        "$MOZA_TEST_ROOT", "${MOZA_TEST_ROOT}",
-        "$MOZA_TEST_ROOT/Projects/acme", "${MOZA_TEST_ROOT}/Projects/acme",
+        "$MIEN_TEST_ROOT", "${MIEN_TEST_ROOT}",
+        "$MIEN_TEST_ROOT/Projects/acme", "${MIEN_TEST_ROOT}/Projects/acme",
     ])
     def test_leaves_a_set_but_empty_variable_literal(self, raw, monkeypatch):
         """`export WORK_ROOT=` in a dotfile is the ordinary accident. zsh would
         expand it away exactly like an unset one, so it fails closed the same
         way: alone it would normalize to '' and cover every absolute path, and
         as a prefix it would leave the far broader '/Projects/acme'."""
-        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        monkeypatch.setenv("MIEN_TEST_ROOT", "")
         assert expand_scope(raw) == raw
 
-    @pytest.mark.parametrize("raw", ["${MOZA_TEST_ROOT}/acme", "${HOME}/Projects/acme"])
+    @pytest.mark.parametrize("raw", ["${MIEN_TEST_ROOT}/acme", "${HOME}/Projects/acme"])
     def test_expands_the_braced_form_when_the_value_is_non_empty(self, raw, monkeypatch):
         monkeypatch.setenv("HOME", "/Users/me")
-        monkeypatch.setenv("MOZA_TEST_ROOT", "/srv/clients")
+        monkeypatch.setenv("MIEN_TEST_ROOT", "/srv/clients")
         assert "$" not in expand_scope(raw)
 
     def test_leaves_tilde_literal_when_home_is_empty(self, monkeypatch):
@@ -102,10 +102,10 @@ class TestExpandScope:
     def test_leaves_unrecognized_dollar_forms_untouched(self, monkeypatch):
         """Only `$VAR` and `${VAR}` are substituted; nothing else becomes an
         error, so scopes that work today keep working."""
-        monkeypatch.delenv("MOZA_NO_SUCH_VAR", raising=False)
+        monkeypatch.delenv("MIEN_NO_SUCH_VAR", raising=False)
         assert expand_scope("*/Projects/$") == "*/Projects/$"
-        assert expand_scope("${MOZA_NO_SUCH_VAR:-/tmp}/acme") == (
-            "${MOZA_NO_SUCH_VAR:-/tmp}/acme"
+        assert expand_scope("${MIEN_NO_SUCH_VAR:-/tmp}/acme") == (
+            "${MIEN_NO_SUCH_VAR:-/tmp}/acme"
         )
 
 
@@ -137,8 +137,8 @@ class TestResolveExpandedScopes:
         assert resolve_profile(p, "/srv/clients/Projects/acme") is None
 
     def test_arbitrary_variable_scope(self, monkeypatch):
-        monkeypatch.setenv("MOZA_TEST_ROOT", "/srv/clients")
-        p = profiles(prof("work", "$MOZA_TEST_ROOT/acme"))
+        monkeypatch.setenv("MIEN_TEST_ROOT", "/srv/clients")
+        p = profiles(prof("work", "$MIEN_TEST_ROOT/acme"))
         assert resolve_profile(p, "/srv/clients/acme/src") == "work"
         assert resolve_profile(p, "/srv/clients/acme-fork") is None
 
@@ -153,27 +153,27 @@ class TestResolveExpandedScopes:
         assert resolve_profile(p, "/Users/me/Projects/acme-fork") is None
 
     def test_undefined_variable_does_not_widen_the_scope(self, monkeypatch):
-        monkeypatch.delenv("MOZA_NO_SUCH_VAR", raising=False)
-        p = profiles(prof("work", "$MOZA_NO_SUCH_VAR/Projects/acme"))
+        monkeypatch.delenv("MIEN_NO_SUCH_VAR", raising=False)
+        p = profiles(prof("work", "$MIEN_NO_SUCH_VAR/Projects/acme"))
         assert resolve_profile(p, "/Projects/acme") is None
         assert resolve_profile(p, "/Users/me/Projects/acme") is None
 
-    @pytest.mark.parametrize("raw", ["$MOZA_TEST_ROOT", "${MOZA_TEST_ROOT}"])
+    @pytest.mark.parametrize("raw", ["$MIEN_TEST_ROOT", "${MIEN_TEST_ROOT}"])
     def test_empty_variable_alone_claims_nothing(self, raw, monkeypatch):
         """Expanded away, this scope would normalize to '' and `_covers` would
         match every absolute path — every directory on the machine would run as
         `work`."""
-        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        monkeypatch.setenv("MIEN_TEST_ROOT", "")
         p = profiles(prof("work", raw))
-        assert resolve_profile(p, "/Users/me/Projects/moza") is None
+        assert resolve_profile(p, "/Users/me/Projects/mien") is None
         assert resolve_profile(p, "/tmp/scratch") is None
         assert resolve_profile(p, "/") is None
 
     @pytest.mark.parametrize("raw", [
-        "$MOZA_TEST_ROOT/Projects/acme", "${MOZA_TEST_ROOT}/Projects/acme",
+        "$MIEN_TEST_ROOT/Projects/acme", "${MIEN_TEST_ROOT}/Projects/acme",
     ])
     def test_empty_variable_prefix_does_not_widen_the_scope(self, raw, monkeypatch):
-        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        monkeypatch.setenv("MIEN_TEST_ROOT", "")
         p = profiles(prof("work", raw))
         assert resolve_profile(p, "/Projects/acme") is None
         assert resolve_profile(p, "/Projects/acme/src") is None
@@ -184,12 +184,12 @@ class TestResolveExpandedScopes:
     ):
         """The reported misroute: `work: ["$WORK_ROOT"]` with WORK_ROOT empty
         answered `work` in a directory `personal` owns, and elsewhere."""
-        monkeypatch.setenv("MOZA_TEST_ROOT", "")
+        monkeypatch.setenv("MIEN_TEST_ROOT", "")
         p = profiles(
-            prof("work", "$MOZA_TEST_ROOT"),
-            prof("personal", "*/Projects/moza"),
+            prof("work", "$MIEN_TEST_ROOT"),
+            prof("personal", "*/Projects/mien"),
         )
-        assert resolve_profile(p, "/Users/me/Projects/moza") == "personal"
+        assert resolve_profile(p, "/Users/me/Projects/mien") == "personal"
         assert resolve_profile(p, "/Users/me/elsewhere") is None
 
     def test_empty_home_does_not_widen_a_tilde_scope(self, monkeypatch):

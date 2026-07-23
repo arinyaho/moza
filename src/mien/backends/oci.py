@@ -22,7 +22,7 @@ _UPDATABLE = {"ACTIVE", "UPDATING"}
 _REACTIVATABLE = {"PENDING_DELETION", "SCHEDULING_DELETION", "CANCELLING_DELETION"}
 
 # Cap on waiting for a cancelled deletion to return the secret to ACTIVE. The
-# transition is normally seconds; this bounds a stuck one so `moza login` fails
+# transition is normally seconds; this bounds a stuck one so `mien login` fails
 # with a clear timeout rather than hanging.
 _REACTIVATE_WAIT_SEC = 120
 

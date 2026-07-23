@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from moza.ambient import (
+from mien.ambient import (
     FOOTER,
     HEADER,
     AmbientParseError,
@@ -15,8 +15,8 @@ from moza.ambient import (
     unexpandable_scope_vars,
     write_ambient,
 )
-from moza.config import Profile, ProjectEnvScope
-from moza.resolve import match_base, resolve_profile
+from mien.config import Profile, ProjectEnvScope
+from mien.resolve import match_base, resolve_profile
 
 
 def test_render_matches_root_and_subdirs():
@@ -48,14 +48,14 @@ def test_render_leaves_tilde_and_vars_for_zsh_to_expand(scope, monkeypatch):
     assert "/Users/nobody-in-particular" not in out
 
 
-@pytest.mark.parametrize("scope", ["$MOZA_TEST_ROOT", "${MOZA_TEST_ROOT}/acme", "~/acme"])
+@pytest.mark.parametrize("scope", ["$MIEN_TEST_ROOT", "${MIEN_TEST_ROOT}/acme", "~/acme"])
 def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
     # Identity resolution refuses to expand an empty reference (it would widen the
     # scope); the generated script never expands anything at sync time, so an empty
     # value in the sync-time environment leaves its output byte-for-byte unchanged.
     out = render_ambient({"p": Profile(name="p", project_env=[
         ProjectEnvScope(match=scope, env={"K": "v"})])})
-    monkeypatch.setenv("MOZA_TEST_ROOT", "")
+    monkeypatch.setenv("MIEN_TEST_ROOT", "")
     monkeypatch.setenv("HOME", "")
     assert render_ambient({"p": Profile(name="p", project_env=[
         ProjectEnvScope(match=scope, env={"K": "v"})])}) == out
@@ -70,7 +70,7 @@ def test_render_is_unaffected_by_an_empty_variable_or_home(scope, monkeypatch):
     ("$HOME/Projects/acme", []),                      # zsh sets HOME before .zshenv
     ("$TMPDIR/scratch", ["TMPDIR"]),                  # launchd sets it on macOS, but
                                                       # stock sshd/Linux PAM do not, and
-                                                      # moza pins no platform — so warn
+                                                      # mien pins no platform — so warn
     ("$ZDOTDIR/work", ["ZDOTDIR"]),                   # zsh never sets it; and if the user
                                                       # did, zsh reads $ZDOTDIR/.zshenv, not
                                                       # the ~/.zshenv this code writes to
@@ -116,12 +116,12 @@ def test_render_escapes_only_quote_and_backslash_keeps_dollar_and_backtick():
 
 def test_render_empty_when_no_scopes():
     out = render_ambient({"p": Profile(name="p")})
-    assert "# >>> moza ambient env" in out
+    assert "# >>> mien ambient env" in out
     assert 'case "$PWD/"' not in out
 
 
 def test_ambient_path_beside_config(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     assert ambient_path() == tmp_path / "ambient.zsh"
 
 
@@ -134,7 +134,7 @@ def test_assert_parses_rejects_broken_script():
 
 @pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
 def test_write_ambient_refuses_unparseable(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     # _emit_value escapes \ and ", and a newline inside "..." is legal zsh, so
     # almost every value renders as a well-formed literal. The gate's real job is
     # the one thing left raw: an unbalanced command-substitution open ("$(") — that
@@ -146,7 +146,7 @@ def test_write_ambient_refuses_unparseable(monkeypatch, tmp_path):
 
 
 def test_write_ambient_creates_file(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     p = write_ambient({"p": Profile(name="p", project_env=[
         ProjectEnvScope(match="*/x", env={"K": "v"})])})
     assert p == ambient_path()
@@ -160,16 +160,16 @@ def test_ensure_zshenv_inserts_then_idempotent(tmp_path):
     assert ensure_zshenv_sources(zshenv, ambient) is True
     body = zshenv.read_text()
     assert "# user content" in body and str(ambient) in body
-    assert body.count("moza ambient (zshenv)") == 2
+    assert body.count("mien ambient (zshenv)") == 2
     assert ensure_zshenv_sources(zshenv, ambient) is False       # re-run: no change
-    assert zshenv.read_text().count("moza ambient (zshenv)") == 2
+    assert zshenv.read_text().count("mien ambient (zshenv)") == 2
 
 
 @pytest.mark.skipif(not shutil.which("zsh"), reason="zsh required")
 def test_behavioral_ambient_applies_under_matching_pwd(monkeypatch, tmp_path):
     # End-to-end: a real zsh, cd'd into a matching dir, sourcing ambient.zsh,
     # actually exports the value. This is the only test that proves it WORKS.
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     matchdir = tmp_path / "proj" / "work" / "arinyaho"
     matchdir.mkdir(parents=True)
     write_ambient({"p": Profile(name="p", project_env=[
@@ -185,7 +185,7 @@ def test_behavioral_ambient_applies_under_matching_pwd(monkeypatch, tmp_path):
 def test_behavioral_zshenv_sources_ambient(monkeypatch, tmp_path):
     # Prove the FULL wiring: a zshenv with the managed region, when sourced by a
     # real zsh under a matching $PWD, pulls in ambient.zsh and applies the value.
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     matchdir = tmp_path / "proj" / "work" / "arinyaho"
     matchdir.mkdir(parents=True)
     write_ambient({"p": Profile(name="p", project_env=[
@@ -202,7 +202,7 @@ def test_behavioral_zshenv_sources_ambient(monkeypatch, tmp_path):
 def test_behavioral_tilde_scope_agrees_with_identity_resolution(monkeypatch, tmp_path):
     # The claim both sides are documented to keep: one scope string, one directory,
     # the same answer from the generated zsh and from resolve_profile.
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     home = tmp_path / "home"
     matchdir = home / "Projects" / "acme"
     matchdir.mkdir(parents=True)
@@ -220,7 +220,7 @@ def test_behavioral_tilde_scope_agrees_with_identity_resolution(monkeypatch, tmp
 
 
 def test_write_ambient_leaves_no_tmp_files(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOZA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "cfg.json"))
     write_ambient({"p": Profile(name="p", project_env=[
         ProjectEnvScope(match="*/x", env={"K": "v"})])})
     leftovers = [f for f in ambient_path().parent.iterdir() if f.name.endswith(".tmp")]
@@ -228,7 +228,7 @@ def test_write_ambient_leaves_no_tmp_files(monkeypatch, tmp_path):
 
 
 def test_ensure_zshenv_failed_write_preserves_original(monkeypatch, tmp_path):
-    from moza import ambient as _amb
+    from mien import ambient as _amb
     zshenv = tmp_path / ".zshenv"
     zshenv.write_text("# precious user content\nexport FOO=1\n")
     ambient = tmp_path / "ambient.zsh"

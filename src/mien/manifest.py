@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from moza.backends.base import SecretsBackend
-from moza.config import BackendConfig, Config, deserialize_config, serialize_config
+from mien.backends.base import SecretsBackend
+from mien.config import BackendConfig, Config, deserialize_config, serialize_config
 
-MANIFEST_SECRET_NAME = "moza-config-manifest"
+MANIFEST_SECRET_NAME = "mien-config-manifest"
 _CLOUD_BACKENDS = {"gcp_secret_manager", "oci_vault"}
 
 

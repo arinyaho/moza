@@ -10,15 +10,15 @@ from pathlib import Path
 
 import click
 
-from moza.ambient import (
+from mien.ambient import (
     AmbientParseError,
     ensure_zshenv_sources,
     unexpandable_scope_vars,
     write_ambient,
 )
-from moza.backends import load_backend
-from moza.ephemeral import EphemeralStore
-from moza.config import (
+from mien.backends import load_backend
+from mien.ephemeral import EphemeralStore
+from mien.config import (
     AWSService,
     AtlassianService,
     BackendConfig,
@@ -34,13 +34,13 @@ from moza.config import (
     load_config,
     save_config,
 )
-from moza.env import build_env
-from moza.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
-from moza.oauth import exchange_refresh_token, google_installed_app_flow
-from moza.resolve import AmbiguousScope, resolve_profile
-from moza.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
-from moza.secret_naming import render_name
-from moza.shell import emit_unset, emit_use, render_shell_init
+from mien.env import build_env
+from mien.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
+from mien.oauth import exchange_refresh_token, google_installed_app_flow
+from mien.resolve import AmbiguousScope, resolve_profile
+from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
+from mien.secret_naming import render_name
+from mien.shell import emit_unset, emit_use, render_shell_init
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -71,24 +71,24 @@ def _friendly_backend_message(exc: BaseException) -> str | None:
         return (
             f"Permission denied accessing Secret Manager (project {project!r}).\n\n"
             "Most likely cause: your Application Default Credentials (ADC) is signed\n"
-            "in as a different account than the moza bootstrap account.\n\n"
+            "in as a different account than the mien bootstrap account.\n\n"
             "Check the current ADC account:\n"
             "  TOKEN=$(gcloud auth application-default print-access-token)\n"
             '  curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" | jq .email\n\n'
             f"If it isn't {account!r}, fix it:\n"
             f"  gcloud auth application-default login --account={account}\n\n"
-            "Then verify with: moza doctor"
+            "Then verify with: mien doctor"
         )
     if gerr is not None and isinstance(exc, gerr.Unauthenticated):
         return (
             "No Application Default Credentials available.\n\n"
             f"  gcloud auth application-default login --account={account}\n\n"
-            "Then verify with: moza doctor"
+            "Then verify with: mien doctor"
         )
     return None
 
 
-class MozaGroup(click.Group):
+class MienGroup(click.Group):
     def invoke(self, ctx: click.Context):
         try:
             return super().invoke(ctx)
@@ -101,13 +101,13 @@ class MozaGroup(click.Group):
             raise
 
 
-@click.group(cls=MozaGroup)
-@click.version_option(package_name="moza")
+@click.group(cls=MienGroup)
+@click.version_option(package_name="mien")
 def main() -> None:
-    """moza — multi-identity credential router."""
-    # moza's own backend access always uses the bootstrap ADC.
+    """mien — multi-identity credential router."""
+    # mien's own backend access always uses the bootstrap ADC.
     # An active profile's GOOGLE_APPLICATION_CREDENTIALS is meant for downstream
-    # programs (gcloud, gh, etc.), not for moza itself — pop it so google-auth
+    # programs (gcloud, gh, etc.), not for mien itself — pop it so google-auth
     # falls back to ~/.config/gcloud/application_default_credentials.json.
     os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
@@ -223,11 +223,11 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
                 "  gcloud projects add-iam-policy-binding <project> \\\n"
                 f"      --member=user:{account} --role=roles/secretmanager.admin"
             )
-            msg.append("Then: moza doctor")
+            msg.append("Then: mien doctor")
         elif backend_type == "oci_vault":
             msg.append("")
             msg.append("Check ~/.oci/config and that the API key PEM exists.")
-            msg.append("Then: moza doctor")
+            msg.append("Then: mien doctor")
         raise click.ClickException("\n".join(msg))
 
 
@@ -239,7 +239,7 @@ def _verify_backend(backend, backend_type: str, bootstrap: dict) -> None:
 @click.option("--vault-ocid", help="(oci) vault OCID")
 @click.option("--compartment-ocid", help="(oci) compartment OCID")
 @click.option("--region", default=None, help="(oci) region (default: ap-chuncheon-1)")
-@click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'moza-')")
+@click.option("--service-prefix", default=None, help="(keychain) service prefix (default: 'mien-')")
 @click.option("--yes", "-y", is_flag=True, help="Overwrite existing config and auto-import an existing backend manifest without prompting.")
 @click.option("--no-import", "no_import", is_flag=True,
               help="Skip importing an existing config manifest from the backend.")
@@ -294,12 +294,12 @@ def init_cmd(
         bootstrap = {}
     elif backend == "keyring":
         if service_prefix is None:
-            service_prefix = click.prompt("Service prefix", default="moza-")
+            service_prefix = click.prompt("Service prefix", default="mien-")
         backend_cfg = BackendConfig(type="keyring", options={"service_prefix": service_prefix})
         bootstrap = {}
     else:  # macos_keychain
         if service_prefix is None:
-            service_prefix = click.prompt("Service prefix", default="moza-")
+            service_prefix = click.prompt("Service prefix", default="mien-")
         backend_cfg = BackendConfig(type="macos_keychain", options={"service_prefix": service_prefix})
         bootstrap = {}
 
@@ -308,8 +308,8 @@ def init_cmd(
         secrets_backend=backend_cfg,
         bootstrap=bootstrap,
         secret_naming=SecretNaming(
-            default="moza-{profile}-{service}-{kind}",
-            slack_token="moza-{profile}-slack-{workspace}-token",
+            default="mien-{profile}-{service}-{kind}",
+            slack_token="mien-{profile}-slack-{workspace}-token",
         ),
         profiles={},
     )
@@ -332,7 +332,7 @@ def init_cmd(
         if remote and remote.profiles:
             names = ", ".join(remote.profiles)
             do_import = yes or click.confirm(
-                f"Found an existing moza config in this backend "
+                f"Found an existing mien config in this backend "
                 f"({len(remote.profiles)} profiles: {names}). Import it?",
                 default=True,
             )
@@ -341,11 +341,11 @@ def init_cmd(
                 first = next(iter(remote.profiles))
                 click.echo(
                     f'Imported {len(remote.profiles)} profiles. '
-                    f'Try: eval "$(moza use --owner-pid $$ {first})"  (or: moza-use {first})'
+                    f'Try: eval "$(mien use --owner-pid $$ {first})"  (or: mien-use {first})'
                 )
                 return
 
-    click.echo("Next: `moza login <profile> --service google|github|slack`")
+    click.echo("Next: `mien login <profile> --service google|github|slack`")
 
 
 
@@ -360,7 +360,7 @@ def _print_oauth_client_hint(cfg: Config) -> None:
     click.echo(f"  1) Open: {url}")
     click.echo("  2) Create Credentials → OAuth client ID → Application type: Desktop app")
     click.echo("  3) Copy the Client ID + Client secret, then paste below.")
-    click.echo("(One Desktop client can be reused across all moza profiles.)")
+    click.echo("(One Desktop client can be reused across all mien profiles.)")
     click.echo("")
 
 
@@ -415,11 +415,11 @@ def _set_adc_quota_project(project: str) -> None:
     help="Shell dialect (zsh or bash). Defaults to the one $SHELL names.",
 )
 def shell_init_cmd(shell: str | None) -> None:
-    """Print the shell wrappers (`moza-use`, `moza-unset`) for eval.
+    """Print the shell wrappers (`mien-use`, `mien-unset`) for eval.
 
     Add to your rc file so no repo checkout is needed:
 
-        echo 'eval "$(moza shell-init)"' >> ~/.zshrc
+        echo 'eval "$(mien shell-init)"' >> ~/.zshrc
     """
     if shell is None:
         shell = "bash" if os.environ.get("SHELL", "").endswith("bash") else "zsh"
@@ -433,7 +433,7 @@ def shell_init_cmd(shell: str | None) -> None:
 def list_cmd() -> None:
     cfg = _require_config()
     if not cfg.profiles:
-        click.echo("(no profiles configured — run `moza login <name> --service ...`)")
+        click.echo("(no profiles configured — run `mien login <name> --service ...`)")
         return
     for name, prof in cfg.profiles.items():
         services = []
@@ -461,7 +461,7 @@ def list_cmd() -> None:
 
 @main.command("status")
 def status_cmd() -> None:
-    active = os.environ.get("MOZA_PROFILE")
+    active = os.environ.get("MIEN_PROFILE")
     if not active:
         click.echo("no profile active in this shell")
         return
@@ -471,7 +471,7 @@ def status_cmd() -> None:
         "CLOUDSDK_CORE_PROJECT",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "GH_TOKEN",
-        "MOZA_SLACK_TOKENS",
+        "MIEN_SLACK_TOKENS",
         "AWS_PROFILE",
         "AWS_DEFAULT_REGION",
         "AWS_ACCESS_KEY_ID",
@@ -496,9 +496,9 @@ def status_cmd() -> None:
 )
 def whoami_cmd(profile: str | None, live: bool) -> None:
     cfg = _require_config()
-    name = profile or os.environ.get("MOZA_PROFILE")
+    name = profile or os.environ.get("MIEN_PROFILE")
     if not name:
-        raise click.ClickException("no profile (set $MOZA_PROFILE or pass an argument)")
+        raise click.ClickException("no profile (set $MIEN_PROFILE or pass an argument)")
     prof = cfg.profiles.get(name)
     if not prof:
         raise click.ClickException(f"profile {name!r} not found")
@@ -526,7 +526,7 @@ def _whoami_live(cfg: Config, prof: Profile) -> None:
     it; a provider that could not be reached is surfaced but does not fail."""
     backend = load_backend(cfg.secrets_backend)
     # build_env writes plaintext credential files (Google ADC, ssh key, slack
-    # tokens) to $TMPDIR/moza keyed by this process's pid. Like exec/run, this
+    # tokens) to $TMPDIR/mien keyed by this process's pid. Like exec/run, this
     # command owns their whole lifetime and must delete them on the way out —
     # otherwise a verification command leaves credentials on disk.
     store = EphemeralStore()
@@ -611,7 +611,7 @@ def _whoami_live(cfg: Config, prof: Profile) -> None:
 def _require_config() -> Config:
     cfg = load_config()
     if cfg is None:
-        raise click.ClickException("no config — run `moza init` first")
+        raise click.ClickException("no config — run `mien init` first")
     return cfg
 
 
@@ -623,7 +623,7 @@ def _save_and_sync(cfg: Config, backend) -> None:
         except Exception as exc:
             click.echo(
                 f"warning: could not sync config manifest ({exc}). "
-                f"Run `moza push` later.",
+                f"Run `mien push` later.",
                 err=True,
             )
 
@@ -927,18 +927,18 @@ def _stdout_is_tty() -> bool:
                    "Use only when you understand the snippet sources an env file "
                    "and won't paste the path anywhere it shouldn't go.")
 @click.option("--owner-pid", type=int, default=None,
-              help="PID that owns the ephemeral files' lifetime. The moza-use "
+              help="PID that owns the ephemeral files' lifetime. The mien-use "
                    "wrapper passes $$ (the calling shell) so the files survive as "
                    "long as that shell — not just this short-lived process.")
 def use_cmd(profile_name: str, force_print: bool, owner_pid: int | None) -> None:
     if _stdout_is_tty() and not force_print:
         raise click.ClickException(
             "stdout is a TTY — refusing to emit the env loader.\n"
-            "`moza use` is meant to be eval'd, not run interactively.\n\n"
+            "`mien use` is meant to be eval'd, not run interactively.\n\n"
             "Use the wrapper (recommended):\n"
-            f"  moza-use {profile_name}\n\n"
+            f"  mien-use {profile_name}\n\n"
             "Or eval directly:\n"
-            f'  eval "$(moza use --owner-pid $$ {profile_name})"\n\n'
+            f'  eval "$(mien use --owner-pid $$ {profile_name})"\n\n'
             "If you really need raw output, pass --print."
         )
     cfg = _require_config()
@@ -1018,7 +1018,7 @@ def push_cmd() -> None:
     click.echo("pushed config manifest to backend")
 
 
-@main.group("env", cls=MozaGroup)
+@main.group("env", cls=MienGroup)
 def env_group() -> None:
     """Manage ambient per-project env (non-interactive zsh only)."""
 
@@ -1057,7 +1057,7 @@ def _warn_unexpandable_scopes(profiles: dict[str, Profile]) -> None:
 
 @env_group.command("sync")
 def env_sync_cmd() -> None:
-    """Generate ~/.config/moza/ambient.zsh from every profile's project_env and
+    """Generate ~/.config/mien/ambient.zsh from every profile's project_env and
     ensure ~/.zshenv sources it. Non-secret only. Idempotent. The generated
     script is `zsh -n`-validated before anything is written or wired."""
     cfg = _require_config()
@@ -1095,10 +1095,10 @@ def _run_as_profile(cfg: Config, prof: Profile, argv: tuple[str, ...]) -> None:
     Shared by `exec` and `run` so the cleanup below cannot drift between them.
 
     Whichever command spawns the child owns its whole lifetime, so it also owns
-    the plaintext credential files build_env drops in $TMPDIR/moza (ADC blob with
+    the plaintext credential files build_env drops in $TMPDIR/mien (ADC blob with
     the client_secret + refresh_token, ssh key, slack token map). Unlike `use`,
     nothing downstream needs them to survive this process — and no shell EXIT trap
-    fires for these paths, since MOZA_PROFILE is only ever set in the child's
+    fires for these paths, since MIEN_PROFILE is only ever set in the child's
     environment. Clean up unconditionally: normal exit, non-zero exit, child
     killed by a signal, Ctrl-C, or an exception.
     """
@@ -1153,7 +1153,7 @@ def _logical_cwd() -> str:
 def _resolve_cwd_profile(cfg: Config) -> str | None:
     """Profile claimed by the current directory, honouring an explicit override.
 
-    An activated MOZA_PROFILE wins: someone ran `moza use` on purpose and a
+    An activated MIEN_PROFILE wins: someone ran `mien use` on purpose and a
     directory default must not quietly undo that. The disagreement is still
     reported, because acting against the directory's default without noticing is
     the confusion this resolution exists to remove.
@@ -1164,16 +1164,16 @@ def _resolve_cwd_profile(cfg: Config) -> str | None:
 
     A name returned from here is always a profile that exists. Directory scopes
     come from the config, so only the override can name something else — a
-    renamed or deleted profile leaves a stale MOZA_PROFILE exported in shells
+    renamed or deleted profile leaves a stale MIEN_PROFILE exported in shells
     that are still open. Rejecting it here, rather than in each caller, keeps
     `which` from printing a name its own consumers cannot use.
     """
-    active = os.environ.get("MOZA_PROFILE")
+    active = os.environ.get("MIEN_PROFILE")
     if active and active not in cfg.profiles:
         raise click.ClickException(
             f"profile {active!r} is active in this shell but not found in the "
             "config; it may have been renamed or removed. Clear it with "
-            "`moza-unset` (bare `moza unset` only prints the commands — it "
+            "`mien-unset` (bare `mien unset` only prints the commands — it "
             "cannot change the calling shell), or activate an existing profile."
         )
     try:
@@ -1222,7 +1222,7 @@ def run_cmd(argv: tuple[str, ...]) -> None:
     if not name:
         raise click.ClickException(
             f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
-            "profile, or use `moza exec <profile> -- ...`."
+            "profile, or use `mien exec <profile> -- ...`."
         )
     # _resolve_cwd_profile only ever returns a profile that exists.
     _run_as_profile(cfg, cfg.profiles[name], argv)
@@ -1234,16 +1234,16 @@ def run_cmd(argv: tuple[str, ...]) -> None:
     "--profile",
     "profile",
     default=None,
-    help="Profile to mint for. Defaults to $MOZA_PROFILE. Prefer passing this "
+    help="Profile to mint for. Defaults to $MIEN_PROFILE. Prefer passing this "
     "explicitly from an agent, whose shell state does not survive between calls.",
 )
 def token_cmd(service: str, profile: str | None) -> None:
     cfg = _require_config()
-    name = profile or os.environ.get("MOZA_PROFILE")
+    name = profile or os.environ.get("MIEN_PROFILE")
     if not name:
         raise click.ClickException(
-            "no profile: pass --profile <name>, or set $MOZA_PROFILE via "
-            'eval "$(moza use --owner-pid $$ <profile>)" in this same shell'
+            "no profile: pass --profile <name>, or set $MIEN_PROFILE via "
+            'eval "$(mien use --owner-pid $$ <profile>)" in this same shell'
         )
     prof = cfg.profiles.get(name)
     if not prof:
@@ -1360,7 +1360,7 @@ def doctor_cmd(gc: bool) -> None:
 @click.option("--account", help="(gcp) account email to verify")
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON for agent orchestration.")
 def preflight_cmd(backend: str, project: str | None, account: str | None, as_json: bool) -> None:
-    """Check environment readiness before `moza init`. Useful for agent-driven setup."""
+    """Check environment readiness before `mien init`. Useful for agent-driven setup."""
     findings: list[dict] = []
 
     def add(name: str, ok: bool, detail: str = "", fix: str = "") -> None:

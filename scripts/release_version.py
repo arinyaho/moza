@@ -1,4 +1,4 @@
-"""Synchronize Moza's release version across its distributed metadata."""
+"""Synchronize Mien's release version across its distributed metadata."""
 
 from __future__ import annotations
 
@@ -27,12 +27,12 @@ def main() -> None:
     if len(sys.argv) != 2 or not SEMVER_RE.fullmatch(sys.argv[1]):
         raise SystemExit("Usage: python scripts/release_version.py <semver-version>")
     version = sys.argv[1]
-    root = Path(os.environ.get("MOZA_VERSION_ROOT", Path(__file__).resolve().parents[1])).resolve()
+    root = Path(os.environ.get("MIEN_VERSION_ROOT", Path(__file__).resolve().parents[1])).resolve()
     version_file = root / "VERSION"
-    claude_manifest = root / "plugins/moza/.claude-plugin/plugin.json"
-    codex_manifest = root / "plugins/moza/.codex-plugin/plugin.json"
+    claude_manifest = root / "plugins/mien/.claude-plugin/plugin.json"
+    codex_manifest = root / "plugins/mien/.codex-plugin/plugin.json"
     pyproject = root / "pyproject.toml"
-    skill = root / "plugins/moza/skills/moza/SKILL.md"
+    skill = root / "plugins/mien/skills/mien/SKILL.md"
     files = [version_file, claude_manifest, codex_manifest, pyproject, skill]
 
     # Read and validate every target before changing any one of them.

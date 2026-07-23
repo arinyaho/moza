@@ -2,14 +2,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from moza.backends.base import BackendUnauthorized, SecretNotFound
-from moza.backends.gcp import GCPSecretManagerBackend
+from mien.backends.base import BackendUnauthorized, SecretNotFound
+from mien.backends.gcp import GCPSecretManagerBackend
 
 
 @pytest.fixture
 def client(mocker):
     fake = MagicMock()
-    mocker.patch("moza.backends.gcp.SecretManagerServiceClient", return_value=fake)
+    mocker.patch("mien.backends.gcp.SecretManagerServiceClient", return_value=fake)
     return fake
 
 

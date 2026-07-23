@@ -25,7 +25,7 @@ class MacOSKeychainBackend:
     CLI-based implementation remain readable.
     """
 
-    def __init__(self, service_prefix: str = "moza-") -> None:
+    def __init__(self, service_prefix: str = "mien-") -> None:
         self.service_prefix = service_prefix
         self._kc = _MacKeyring()
 

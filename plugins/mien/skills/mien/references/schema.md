@@ -1,6 +1,6 @@
-# Config schema (`~/.config/moza/config.json`)
+# Config schema (`~/.config/mien/config.json`)
 
-Default location: `~/.config/moza/config.json`. Override with `MOZA_CONFIG=/some/path`.
+Default location: `~/.config/mien/config.json`. Override with `MIEN_CONFIG=/some/path`.
 
 Top level:
 
@@ -18,8 +18,8 @@ Top level:
 
 - `gcp_secret_manager`: `{"type": "gcp_secret_manager", "project": "<gcp-project>"}`
 - `oci_vault`: `{"type": "oci_vault", "vault_ocid": "...", "compartment_ocid": "...", "region": "..."}`
-- `macos_keychain`: `{"type": "macos_keychain", "service_prefix": "moza-"}`
-- `keyring`: `{"type": "keyring", "service_prefix": "moza-"}` — Linux Secret Service / Windows Credential Locker; free, no cloud; requires a desktop session (does NOT work headless)
+- `macos_keychain`: `{"type": "macos_keychain", "service_prefix": "mien-"}`
+- `keyring`: `{"type": "keyring", "service_prefix": "mien-"}` — Linux Secret Service / Windows Credential Locker; free, no cloud; requires a desktop session (does NOT work headless)
 
 ## Profile blocks
 
@@ -56,8 +56,8 @@ All three are optional per profile.
 
 ### `default_for` (array)
 
-Directory globs this profile claims as its default identity. Resolved by `moza
-which` and `moza run`.
+Directory globs this profile claims as its default identity. Resolved by `mien
+which` and `mien run`.
 
 ```jsonc
 ["*/Projects/acme*", "*/work/*"]
@@ -66,7 +66,7 @@ which` and `moza run`.
 A scope covers the directory itself and everything under it; a sibling sharing a
 prefix is not covered (`*/Projects/acme` does not capture `acme-fork`). The
 longest matching scope wins, and equally specific scopes on different profiles
-are an error rather than a coin flip. An active `MOZA_PROFILE` overrides the
+are an error rather than a coin flip. An active `MIEN_PROFILE` overrides the
 directory, with a warning on stderr when the two disagree; if it names a profile
 the config does not have, the command fails instead of resolving to nothing.
 
@@ -92,8 +92,8 @@ Distinct from `project_env`, which maps directories to environment *values*;
 
 ### `project_env` (array)
 
-Non-secret environment values applied ambiently by directory. `moza env sync`
-renders every profile's scopes into `~/.config/moza/ambient.zsh` as
+Non-secret environment values applied ambiently by directory. `mien env sync`
+renders every profile's scopes into `~/.config/mien/ambient.zsh` as
 `case "$PWD/" in <base>/*)` blocks and wires `~/.zshenv` to source it.
 
 ```jsonc
@@ -113,14 +113,14 @@ parameters that already exist that early (`$HOME`, `$USER` and the like, set by
 zsh itself or inherited from the login process) are safe; `~` is safe too, since
 tilde expansion consults the password database. `$TMPDIR` is deliberately *not*
 treated as safe — macOS launchd sets it, but stock sshd and a default Linux PAM
-do not, and moza pins no platform. `moza env sync` prints a warning naming the
+do not, and mien pins no platform. `mien env sync` prints a warning naming the
 profile and scope for any other reference, and still writes the file — an
 existing working config is not broken by the check.
 
 ## Reserved backend secret name
 
-`moza-config-manifest` is reserved: `moza` stores a non-secret snapshot of
+`mien-config-manifest` is reserved: `mien` stores a non-secret snapshot of
 `config.json` (refs and identifiers only — no secret values) under this name in
 cloud backends (`gcp_secret_manager`, `oci_vault`). It is pushed automatically
-after every `moza login` / `moza logout`. Do not create a profile whose rendered
+after every `mien login` / `mien logout`. Do not create a profile whose rendered
 secret name collides with it.

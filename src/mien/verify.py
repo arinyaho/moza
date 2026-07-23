@@ -1,4 +1,4 @@
-"""Live identity verification for `moza whoami --live`.
+"""Live identity verification for `mien whoami --live`.
 
 The offline `whoami` prints what the config claims a profile is. That cannot
 catch this tool's real failure mode — acting as the wrong identity because the
@@ -19,7 +19,7 @@ from enum import Enum
 
 import httpx
 
-from moza.oauth import exchange_refresh_token
+from mien.oauth import exchange_refresh_token
 
 _PROBE_TIMEOUT = 15
 

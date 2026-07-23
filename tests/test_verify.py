@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from moza.verify import (
+from mien.verify import (
     Status,
     probe_aws,
     probe_github,
@@ -15,7 +15,7 @@ class TestGithub:
     which is compared to the profile's configured username."""
 
     def _gh(self, mocker, *, stdout=b"", returncode=0, stderr=b"", raises=None):
-        run = mocker.patch("moza.verify.subprocess.run")
+        run = mocker.patch("mien.verify.subprocess.run")
         if raises is not None:
             run.side_effect = raises
         else:
@@ -81,7 +81,7 @@ class TestAws:
     MATCH, while auth and reachability failures are still distinguished."""
 
     def _aws(self, mocker, *, stdout=b"", returncode=0, stderr=b"", raises=None):
-        run = mocker.patch("moza.verify.subprocess.run")
+        run = mocker.patch("mien.verify.subprocess.run")
         if raises is not None:
             run.side_effect = raises
         else:
@@ -120,15 +120,15 @@ class TestGoogle:
     token and asking the userinfo endpoint for the email, compared to config."""
 
     def test_match(self, mocker):
-        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
-        mocker.patch("moza.verify._userinfo_email", return_value="me@example.com")
+        mocker.patch("mien.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("mien.verify._userinfo_email", return_value="me@example.com")
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status is Status.MATCH
         assert r.live == "me@example.com"
 
     def test_mismatch(self, mocker):
-        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
-        mocker.patch("moza.verify._userinfo_email", return_value="other@example.com")
+        mocker.patch("mien.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("mien.verify._userinfo_email", return_value="other@example.com")
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status is Status.MISMATCH
 
@@ -141,7 +141,7 @@ class TestGoogle:
         import httpx
         resp = httpx.Response(400, request=httpx.Request("POST", "https://x"))
         mocker.patch(
-            "moza.verify.exchange_refresh_token",
+            "mien.verify.exchange_refresh_token",
             side_effect=httpx.HTTPStatusError(
                 "invalid_grant", request=resp.request, response=resp
             ),
@@ -154,7 +154,7 @@ class TestGoogle:
         import httpx
         resp = httpx.Response(503, request=httpx.Request("POST", "https://x"))
         mocker.patch(
-            "moza.verify.exchange_refresh_token",
+            "mien.verify.exchange_refresh_token",
             side_effect=httpx.HTTPStatusError(
                 "unavailable", request=resp.request, response=resp
             ),
@@ -165,7 +165,7 @@ class TestGoogle:
     def test_network_failure_is_unreachable(self, mocker):
         import httpx
         mocker.patch(
-            "moza.verify.exchange_refresh_token",
+            "mien.verify.exchange_refresh_token",
             side_effect=httpx.ConnectError("no route to host"),
         )
         r = probe_google("me@example.com", "cid", "csec", "refresh")
@@ -175,10 +175,10 @@ class TestGoogle:
         # A 200 with a non-JSON body (a proxy login page, say) makes resp.json()
         # raise. The probe must not crash — never-raises is unconditional.
         import httpx
-        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("mien.verify.exchange_refresh_token", return_value="ya29.tok")
         resp = httpx.Response(200, text="<html>not json</html>",
                               request=httpx.Request("GET", "https://x"))
-        mocker.patch("moza.verify.httpx.get", return_value=resp)
+        mocker.patch("mien.verify.httpx.get", return_value=resp)
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status is Status.UNREACHABLE
         assert r.live is None
@@ -188,10 +188,10 @@ class TestGoogle:
         # The probe must not raise — that breaks the "never raises" contract and
         # takes the whole --live run down.
         import httpx
-        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("mien.verify.exchange_refresh_token", return_value="ya29.tok")
         resp = httpx.Response(200, json={"sub": "12345"},
                               request=httpx.Request("GET", "https://x"))
-        mocker.patch("moza.verify.httpx.get", return_value=resp)
+        mocker.patch("mien.verify.httpx.get", return_value=resp)
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status in (Status.UNREACHABLE, Status.UNAUTHORIZED)
         assert r.live is None
@@ -201,10 +201,10 @@ class TestGoogle:
         # resp.json() return None; None.get(...) raises AttributeError, which is
         # neither ValueError nor KeyError. The probe must still not crash.
         import httpx
-        mocker.patch("moza.verify.exchange_refresh_token", return_value="ya29.tok")
+        mocker.patch("mien.verify.exchange_refresh_token", return_value="ya29.tok")
         resp = httpx.Response(200, json=None,
                               request=httpx.Request("GET", "https://x"))
-        mocker.patch("moza.verify.httpx.get", return_value=resp)
+        mocker.patch("mien.verify.httpx.get", return_value=resp)
         r = probe_google("me@example.com", "cid", "csec", "refresh")
         assert r.status is Status.UNREACHABLE
         assert r.live is None
@@ -213,7 +213,7 @@ class TestGoogle:
 def test_run_probe_safely_never_propagates():
     """The backstop: any exception a probe fails to classify becomes an
     UNREACHABLE result, so one broken probe cannot crash --live."""
-    from moza.verify import Status, run_probe_safely
+    from mien.verify import Status, run_probe_safely
 
     def boom():
         raise RuntimeError("something a probe forgot to catch")

@@ -13,7 +13,7 @@ class EphemeralStore:
     def __init__(self, pid: int | None = None) -> None:
         self.pid = pid if pid is not None else os.getpid()
         tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-        self.root = tmpdir / "moza"
+        self.root = tmpdir / "mien"
 
     def write(self, *, profile: str, kind: str, data: bytes) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ class EphemeralStore:
     @classmethod
     def gc(cls) -> None:
         tmpdir = Path(os.environ.get("TMPDIR", "/tmp"))
-        root = tmpdir / "moza"
+        root = tmpdir / "mien"
         if not root.exists():
             return
         pid_pat = re.compile(r"^(\d+)-")
@@ -46,7 +46,7 @@ class EphemeralStore:
             if not p.is_file():
                 continue
             if env_pat.match(p.name):
-                # Orphaned env loader from a `moza use` whose eval never ran.
+                # Orphaned env loader from a `mien use` whose eval never ran.
                 # Sweep when the file is old enough that no legitimate eval
                 # could still be pending.
                 try:

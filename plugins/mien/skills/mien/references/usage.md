@@ -5,7 +5,7 @@
 You need an OAuth Desktop client in *some* GCP project (does not have to be the same as the secrets backend project). Get its client ID and client secret.
 
 ```bash
-moza login personal --service google --email me@example.com --client-id <id>
+mien login personal --service google --email me@example.com --client-id <id>
 # paste the client secret when prompted
 # follow the browser flow that opens
 ```
@@ -13,28 +13,28 @@ moza login personal --service google --email me@example.com --client-id <id>
 ## Add a GitHub identity (paste a PAT)
 
 ```bash
-moza login personal --service github
+mien login personal --service github
 # enter username, paste a fine-grained or classic PAT
 ```
 
 ## Add a Slack identity (one workspace at a time)
 
 ```bash
-moza login personal --service slack --workspace team-a
+mien login personal --service slack --workspace team-a
 # paste an xoxp- user token
 ```
 
 ## Add a Notion identity
 
 ```bash
-moza login personal --service notion
+mien login personal --service notion
 # paste a Notion integration token
 ```
 
 ## Activate (interactive shell)
 
 ```bash
-moza-use personal            # the wrapper keys the ephemeral files to this shell ($$)
+mien-use personal            # the wrapper keys the ephemeral files to this shell ($$)
 gh pr list
 gcloud projects list
 ```
@@ -50,13 +50,13 @@ identity without naming it:
 ```jsonc
 "profiles": {
   "work":     { "default_for": ["*/Projects/acme*"] },
-  "personal": { "default_for": ["*/Projects/moza"] }
+  "personal": { "default_for": ["*/Projects/mien"] }
 }
 ```
 
 ```bash
-moza which                     # → work
-moza run -- gh pr list
+mien which                     # → work
+mien run -- gh pr list
 ```
 
 Useful when several agent sessions run at once: each one is in its own project
@@ -68,11 +68,11 @@ Agent harnesses run each command in a fresh shell, so an `eval` from an earlier 
 has already been discarded — silently. Prefer a stateless form:
 
 ```bash
-moza run -- gh pr list                 # if the directory pins an identity
-moza exec personal -- gh pr list       # otherwise, name it
+mien run -- gh pr list                 # if the directory pins an identity
+mien exec personal -- gh pr list       # otherwise, name it
 
 # capture the token; never let it reach stdout on its own
-TOKEN=$(moza token google --profile personal) && curl -s -H "Authorization: Bearer $TOKEN" \
+TOKEN=$(mien token google --profile personal) && curl -s -H "Authorization: Bearer $TOKEN" \
   'https://gmail.googleapis.com/gmail/v1/users/me/profile'
 ```
 
@@ -81,13 +81,13 @@ invocation. See the skill's *Activation pattern* section.
 
 ## Verify the live identity before something destructive
 
-`moza whoami` prints what the config says a profile is — fast, offline, no network. `moza
+`mien whoami` prints what the config says a profile is — fast, offline, no network. `mien
 whoami --live` goes further: it asks GitHub, AWS, and Google who the profile *actually*
 authenticates as and compares that to the config.
 
 ```bash
-moza whoami personal            # offline: what the profile claims to be
-moza whoami --live personal     # verified: who the providers say you are
+mien whoami personal            # offline: what the profile claims to be
+mien whoami --live personal     # verified: who the providers say you are
 ```
 
 `--live` exits non-zero on a mismatch (wrong identity) or a dead credential (revoked or
@@ -101,19 +101,19 @@ probed yet**, so `--live` lists them as unchecked rather than pretending it veri
 The gate is trustworthy for GitHub and Google. Chain it before anything you cannot take back:
 
 ```bash
-moza whoami --live work && moza exec work -- gh pr merge 123
+mien whoami --live work && mien exec work -- gh pr merge 123
 ```
 
 ## Cross-identity one-off
 
 ```bash
-moza exec work -- gh pr list
+mien exec work -- gh pr list
 ```
 
 ## Adding secrets without leaving a trace
 
 Adding a credential mid-task — "the Slack key is in this file", "here's a fresh
-PAT" — is routine. Every `moza login` secret is read without ever touching `argv`,
+PAT" — is routine. Every `mien login` secret is read without ever touching `argv`,
 shell history, or `ps`: interactively through a hidden `getpass` prompt, or from
 stdin / a helper command. Every backend then stores it without argv exposure too —
 `macos_keychain` and `keyring` through in-process Keychain / Secret Service
@@ -126,8 +126,8 @@ The secret is sitting in a file (a saved token, an exported key). Redirect the
 file into `--token-stdin` — the path appears in history, the secret does not:
 
 ```bash
-moza login work --service slack --workspace team-a --token-stdin < ./slack-key.txt
-moza login work --service github --username u --token-stdin < ~/tokens/gh-work
+mien login work --service slack --workspace team-a --token-stdin < ./slack-key.txt
+mien login work --service github --username u --token-stdin < ~/tokens/gh-work
 ```
 
 Delete the file afterward if it was only a hand-off (`rm ./slack-key.txt`); the
@@ -137,27 +137,27 @@ secret now lives in the backend.
 
 The secret lives in 1Password, GCP Secret Manager, the macOS Keychain, etc. Pass
 `--secret-cmd` a command that *fetches* it — only the reference reaches history,
-never the secret. `moza` runs the command and reads its stdout:
+never the secret. `mien` runs the command and reads its stdout:
 
 ```bash
-moza login work --service github --username u \
+mien login work --service github --username u \
   --secret-cmd 'op read op://Private/github-work/token'
-moza login work --service aws --access-key-id AKIA... \
+mien login work --service aws --access-key-id AKIA... \
   --secret-cmd 'gcloud secrets versions access latest --secret=aws-work'
 ```
 
 Equivalently, pipe the manager's output into `--token-stdin`
-(`op read … | moza login … --token-stdin`) — same guarantee, the value never
+(`op read … | mien login … --token-stdin`) — same guarantee, the value never
 becomes an argument.
 
 ### By hand, in your own terminal
 
-No file, no manager — you have the secret and want to paste it. Run `moza login`
+No file, no manager — you have the secret and want to paste it. Run `mien login`
 yourself (**not** through an AI agent's non-interactive shell) and answer the
 hidden prompt:
 
 ```bash
-moza login work --service github --username u
+mien login work --service github --username u
 #   → "Paste a GitHub token:" (input hidden, nothing logged)
 ```
 
@@ -167,13 +167,13 @@ Google needs a client secret *and* a refresh token; combine any two mechanisms
 above — here a manager reference for the client secret and a file for the token:
 
 ```bash
-moza login work --service google --email me@x.com --client-id <id> \
+mien login work --service google --email me@x.com --client-id <id> \
   --secret-cmd 'op read op://Private/google-oauth/client_secret' \
   --refresh-token-stdin < ~/saved-refresh-token
 ```
 
 Rule of thumb: never type or paste a secret as a CLI argument, and never ask an
-AI agent to run `moza login` for you — its shell can't answer a hidden prompt, so
+AI agent to run `mien login` for you — its shell can't answer a hidden prompt, so
 the secret would end up in the session transcript. Hand it a file (`--token-stdin
 < path`) or a `--secret-cmd` reference instead.
 
@@ -185,22 +185,22 @@ profile map. On the new machine:
 ```bash
 gcloud auth application-default login --account=<bootstrap-email>
 gcloud auth application-default set-quota-project <sm-project>
-moza init --backend gcp_secret_manager --project <sm-project> \
+mien init --backend gcp_secret_manager --project <sm-project> \
   --bootstrap-email <bootstrap-email>
-#   → "Found an existing moza config (N profiles: ...). Import it? [Y/n]"
-moza-use <profile>
+#   → "Found an existing mien config (N profiles: ...). Import it? [Y/n]"
+mien-use <profile>
 ```
 
 The commands above are the **GCP Secret Manager** flow; an `oci_vault` backend
-uses the same `moza init` import prompt but a different bootstrap (an OCI API key
+uses the same `mien init` import prompt but a different bootstrap (an OCI API key
 in `~/.oci/config`, no ADC / quota-project step).
 
-`moza init --no-import` skips the import prompt. `moza init --yes` auto-imports
+`mien init --no-import` skips the import prompt. `mien init --yes` auto-imports
 without asking. A non-interactive run *without* `--yes` does **not** auto-import:
 the confirmation prompt aborts, and because `init` has already written a fresh
 empty config by that point, you are left with no profiles. Pass `--yes` or
 `--no-import` explicitly when running `init` from a script or an agent — and note
-that `--yes` means trusting whatever the backend manifest contains. Later, re-pull with `moza sync` (`--dry-run` to preview) or force-upload
-local state with `moza push`. `moza sync` and `moza push` require a cloud backend
+that `--yes` means trusting whatever the backend manifest contains. Later, re-pull with `mien sync` (`--dry-run` to preview) or force-upload
+local state with `mien push`. `mien sync` and `mien push` require a cloud backend
 (`gcp_secret_manager` / `oci_vault`); they are a no-op or error on
 `macos_keychain`.
