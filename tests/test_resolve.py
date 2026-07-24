@@ -30,6 +30,17 @@ class TestNormalizeRemote:
     def test_every_form_of_the_same_repo_normalizes_alike(self, url):
         assert normalize_remote(url) == "github.com/octo/widget"
 
+    @pytest.mark.parametrize("url", [
+        "ssh://git@github.com:22/octo/widget",
+        "ssh://git@ssh.github.com:443/octo/widget.git",   # GitHub's firewall form
+        "https://github.com:443/octo/widget",
+    ])
+    def test_a_port_is_stripped_from_the_host(self, url):
+        # A ported remote must still match an owns_remotes glob like github.com/octo/*.
+        norm = normalize_remote(url)
+        assert ":22" not in norm and ":443" not in norm
+        assert norm.endswith("/octo/widget")
+
     def test_a_local_path_is_left_as_a_lowercased_string(self):
         # No host; simply must not crash and must not spuriously match a glob.
         assert normalize_remote("/srv/git/Repo") == "/srv/git/repo"

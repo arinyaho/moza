@@ -182,6 +182,8 @@ def normalize_remote(url: str) -> str:
     if "://" in s:
         s = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", s)  # drop scheme
         s = re.sub(r"^[^/@]+@", "", s)                     # drop user@
+        s = re.sub(r"^([^/:]+):\d+", r"\1", s)             # drop :port from the host
+                                                           # (e.g. GitHub's ssh.github.com:443)
     elif re.match(r"^[^/]+@[^:/]+:", s):                   # scp-like git@host:path
         s = re.sub(r"^[^@]+@", "", s).replace(":", "/", 1)
     return s.rstrip("/").lower()
