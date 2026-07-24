@@ -1248,10 +1248,12 @@ def statusline_cmd() -> None:
         "statusLine": { "type": "command", "command": "mien statusline" }
 
     It reads the session JSON Claude Code passes on stdin (for the directory),
-    then compares what `MIEN_PROFILE` is set to against the profile the directory
-    claims, and prints a coloured segment — green when they agree, red when the
-    active identity is wrong *for this directory*, which is the mis-commit this
-    exists to catch.
+    then compares what `MIEN_PROFILE` is set to against whose place this is — the
+    repository's `origin` owner (`owns_remotes`) first, then a directory
+    (`default_for`) scope — and prints a coloured segment: green when they agree,
+    red when the active identity is wrong here, which is the mis-commit this
+    exists to catch. The remote owner is advisory only (display and warning); it
+    never selects an identity that acts, since a checked-out repo controls it.
 
     Secret-free and offline: it reads only the config's profile names and scopes,
     never the backend, so it is cheap enough to run at status-line frequency. And
