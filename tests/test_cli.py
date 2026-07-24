@@ -174,6 +174,22 @@ def test_claim_writes_allows_and_routes_in_one_step(tmp_path, monkeypatch):
     assert ".mien" in (tmp_path / "xdg" / "git" / "ignore").read_text()
 
 
+def test_claim_with_no_arg_picks_a_profile_interactively(tmp_path, monkeypatch):
+    ws = _project_env(tmp_path, monkeypatch, "arinyaho", "work")  # sorted: arinyaho, work
+    result = CliRunner().invoke(main, ["claim"], input="2\n")  # pick 'work'
+    assert result.exit_code == 0, result.output
+    assert (ws / ".mien").read_text().strip() == "work"
+    assert CliRunner().invoke(main, ["which"]).output.strip() == "work"
+
+
+def test_claim_with_no_arg_approves_an_existing_declaration(tmp_path, monkeypatch):
+    ws = _project_env(tmp_path, monkeypatch, "work")
+    (ws / ".mien").write_text("work\n")
+    result = CliRunner().invoke(main, ["claim"])  # no prompt — .mien already names it
+    assert result.exit_code == 0 and "approving" in result.output
+    assert CliRunner().invoke(main, ["which"]).output.strip() == "work"
+
+
 def test_claim_rejects_an_unknown_profile(tmp_path, monkeypatch):
     _project_env(tmp_path, monkeypatch, "arinyaho")
     result = CliRunner().invoke(main, ["claim", "ghost"])
