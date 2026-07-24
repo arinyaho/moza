@@ -1227,7 +1227,12 @@ def _statusline_cwd() -> str:
         if not sys.stdin.isatty():
             raw = sys.stdin.read()
             if raw.strip():
-                data = json.loads(raw)
+                parsed = json.loads(raw)
+                # Valid JSON that is not an object (`[]`, `5`, `null`) parses
+                # fine but has no `.get`; ignore it and fall back to the cwd,
+                # rather than let an AttributeError skip the fallback.
+                if isinstance(parsed, dict):
+                    data = parsed
     except (OSError, ValueError):
         data = {}
     workspace = data.get("workspace") or {}
