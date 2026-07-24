@@ -41,6 +41,7 @@ from mien.resolve import AmbiguousScope, resolve_profile
 from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from mien.secret_naming import render_name
 from mien.shell import emit_unset, emit_use, render_shell_init
+from mien.statusline import render_segment
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -1211,6 +1212,67 @@ def which_cmd() -> None:
             "profile, or name one explicitly."
         )
     click.echo(name)
+
+
+def _statusline_cwd() -> str:
+    """The directory to resolve identity for, from Claude Code's status-line JSON.
+
+    Claude Code pipes a session object on stdin; `workspace.current_dir` (falling
+    back to `cwd`) is the directory the session is in — which is NOT this
+    process's own cwd, so it must be read from the payload. Any missing or
+    malformed input falls back to the process cwd rather than failing.
+    """
+    data: dict = {}
+    try:
+        if not sys.stdin.isatty():
+            raw = sys.stdin.read()
+            if raw.strip():
+                data = json.loads(raw)
+    except (OSError, ValueError):
+        data = {}
+    workspace = data.get("workspace") or {}
+    return workspace.get("current_dir") or data.get("cwd") or os.getcwd()
+
+
+@main.command("statusline")
+def statusline_cmd() -> None:
+    """Emit a one-line mien identity segment for a Claude Code status line.
+
+    Wire it up in `.claude/settings.json`:
+
+        "statusLine": { "type": "command", "command": "mien statusline" }
+
+    It reads the session JSON Claude Code passes on stdin (for the directory),
+    then compares what `MIEN_PROFILE` is set to against the profile the directory
+    claims, and prints a coloured segment — green when they agree, red when the
+    active identity is wrong *for this directory*, which is the mis-commit this
+    exists to catch.
+
+    Secret-free and offline: it reads only the config's profile names and scopes,
+    never the backend, so it is cheap enough to run at status-line frequency. And
+    it never errors out — a status line that crashes is worse than a blank one —
+    so any failure (no config, unreadable input) prints nothing and exits 0.
+    """
+    try:
+        cfg = load_config()
+        if cfg is None:
+            return  # mien is not set up here — stay silent rather than nag.
+        env_profile = os.environ.get("MIEN_PROFILE") or None
+        env_unknown = bool(env_profile and env_profile not in cfg.profiles)
+        dir_profile: str | None = None
+        ambiguous = False
+        try:
+            dir_profile = resolve_profile(cfg.profiles, _statusline_cwd())
+        except AmbiguousScope:
+            ambiguous = True
+        click.echo(
+            render_segment(
+                env_profile, dir_profile,
+                ambiguous=ambiguous, env_unknown=env_unknown,
+            )
+        )
+    except Exception:
+        return
 
 
 @main.command("run", context_settings={"ignore_unknown_options": True})

@@ -121,6 +121,23 @@ A cloned directory is still matched like any other, though: `*` spans `/`, the s
 
 Because resolution reads the filesystem on every call and keeps no state, it works the same in a long-lived terminal and in an AI agent that starts a fresh shell for every command.
 
+## Who am I here — in the status line
+
+The identity you would act as is worth seeing *before* you act, not after a personal commit has landed in a work repository. `mien statusline` renders a one-line segment for a [Claude Code status line](https://docs.claude.com/en/docs/claude-code/statusline) that keeps the answer in view and turns red when the active identity is wrong for the directory:
+
+```json
+// .claude/settings.json
+{ "statusLine": { "type": "command", "command": "mien statusline" } }
+```
+
+```
+🟢 mien:work                       # the directory's identity, and it agrees with what's active
+🔴 mien:personal ✗ dir wants work  # personal is active, but this directory belongs to work
+🟡 mien:— no profile here          # nothing set, and no scope claims this directory
+```
+
+The red case is the one that matters: an agent session that inherited `personal` from the shell it launched in, sitting in a `work` directory, is exactly how the wrong identity commits. The segment is only as sharp as your `default_for` scopes — it can only warn about directories a profile actually claims. It reads config names and scopes only, never a token, so it is safe to run at status-line frequency, and it prints nothing when `mien` is not configured.
+
 ## Ambient per-project env
 
 Some env vars (e.g. `AWS_PROFILE`) are handy set automatically just by `cd`-ing into a project directory, without running `mien use`. Configure them under a profile's `project_env`, then materialize them:

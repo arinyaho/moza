@@ -57,7 +57,10 @@ $MIEN exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer 
 $MIEN which                         # profile claimed by the current directory
 $MIEN run -- <cmd...>               # run cmd as that profile
 $MIEN token google --profile <p>    # mint a fresh google access token (for curl)
+$MIEN statusline                    # one-line identity segment for a Claude Code status line
 ```
+
+**Status line.** If the user wants the active identity always visible (e.g. "show which profile I'm on"), wire `mien statusline` into their `.claude/settings.json`: `"statusLine": { "type": "command", "command": "mien statusline" }`. It reads Claude Code's session JSON on stdin, compares `MIEN_PROFILE` against the directory's `default_for` claim, and prints green when they agree, red (`✗ dir wants <other>`) when the active identity is wrong for the directory. Secret-free and silent when `mien` is unconfigured.
 
 ## Activation pattern
 
