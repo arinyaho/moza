@@ -13,9 +13,9 @@ def _cfg_env(tmp_path, monkeypatch):
 
 class TestFindDeclaration:
     def test_reads_the_profile_name(self, tmp_path):
-        (tmp_path / ".mien").write_text("chemcopilot\n")
+        (tmp_path / ".mien").write_text("work\n")
         profile, path = find_declaration(str(tmp_path))
-        assert profile == "chemcopilot"
+        assert profile == "work"
         assert path == str((tmp_path / ".mien").resolve())
 
     def test_walks_up_to_the_nearest(self, tmp_path):
