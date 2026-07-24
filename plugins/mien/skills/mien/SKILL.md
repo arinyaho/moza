@@ -55,12 +55,16 @@ $MIEN whoami [<profile>]            # the whole bundled identity as a card; --js
 $MIEN use <profile>                 # prints a `source …; rm …` loader; eval to activate (same call only)
 $MIEN exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer this
 $MIEN which                         # profile claimed by the current directory
+$MIEN claim <profile>               # bind THIS workspace to a profile via a local .mien (writes, approves, git-ignores)
+$MIEN allow                         # approve an existing .mien so it can drive identity here
 $MIEN run -- <cmd...>               # run cmd as that profile
 $MIEN token google --profile <p>    # mint a fresh google access token (for curl)
 $MIEN statusline                    # one-line identity segment for a Claude Code status line
 $MIEN prompt                        # same segment for a shell prompt (zsh RPROMPT / bash PS1)
 $MIEN guard                         # exit non-zero if the identity is confidently wrong for this repo
 ```
+
+**Project-local declaration (`.mien`).** The simplest way to bind a workspace to a profile is a `.mien` file naming it — `mien claim <profile>` writes it, approves it, and adds it to the global git ignore in one step. `mien run`/`which` and the status line then act as that profile for the whole tree, with no central scope. Security: a `.mien` is a checked-out file, so it does **not** drive the acting identity until the user approves it (`mien allow`) — a cloned repo's `.mien` is inert, and an edited one must be re-approved. If a directory declares an unapproved `.mien`, `mien which`/`run` fail loud (they don't silently route); tell the user to run `mien allow`. Precedence: `MIEN_PROFILE` → approved `.mien` → central `default_for`/`owns_remotes`.
 
 **Ambient identity across harnesses.** Three surfaces show/enforce "who am I here", with different reach:
 - `mien statusline` — the **Claude Code** status line (wired via `.claude/settings.json` `statusLine`). Claude Code-specific; other harnesses (e.g. Codex) expose no equivalent status-line hook.

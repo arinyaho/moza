@@ -160,6 +160,30 @@ def test_statusline_neutral_when_no_scope_claims_the_dir(tmp_path, monkeypatch):
     assert "🟡" in result.output and "no profile here" in result.output
 
 
+def test_statusline_shows_pending_for_an_unapproved_mien(tmp_path, monkeypatch):
+    _write_cfg(tmp_path, monkeypatch, work=[])
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / ".mien").write_text("work\n")
+    result = _run(str(ws), monkeypatch)
+    assert result.exit_code == 0
+    assert "🟡" in result.output and "work?" in result.output
+    assert "allow" in result.output
+
+
+def test_statusline_shows_an_approved_mien_as_the_identity(tmp_path, monkeypatch):
+    from mien.project import record_allow
+    _write_cfg(tmp_path, monkeypatch, work=[])
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    decl = ws / ".mien"
+    decl.write_text("work\n")
+    record_allow(str(decl.resolve()), "work")
+    result = _run(str(ws), monkeypatch)
+    assert result.exit_code == 0
+    assert "🟢" in result.output and "mien:work" in result.output
+
+
 def test_statusline_is_silent_without_a_config(tmp_path, monkeypatch):
     # No config file at all — mien is not set up here, so print nothing.
     monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "does-not-exist.json"))

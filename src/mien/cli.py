@@ -37,6 +37,8 @@ from mien.config import (
 from mien.env import build_env
 from mien.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from mien.oauth import exchange_refresh_token, google_installed_app_flow
+from mien.project import (ensure_gitignored, find_declaration, is_allowed,
+                          record_allow, write_declaration)
 from mien.resolve import (AmbiguousScope, claimed_profile, git_author_email,
                           git_origin_remote, profile_for_email, resolve_profile)
 from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
@@ -1225,6 +1227,32 @@ def _resolve_cwd_profile(cfg: Config) -> str | None:
             "`mien-unset` (bare `mien unset` only prints the commands — it "
             "cannot change the calling shell), or activate an existing profile."
         )
+
+    # A project-local `.mien` declaration outranks central default_for scopes —
+    # but only once approved. An unapproved (or stale, or unknown-profile)
+    # declaration must never silently route: a checked-out file cannot choose an
+    # identity that acts until the user runs `mien allow`.
+    declared, decl_path = find_declaration(_logical_cwd())
+    if declared and decl_path:
+        if is_allowed(decl_path, declared) and declared in cfg.profiles:
+            if active and active != declared:
+                click.echo(
+                    f"warning: this directory declares {declared!r} (.mien), but "
+                    f"{active!r} is active in this shell; using {active!r}", err=True)
+            return active or declared
+        if active:
+            click.echo(
+                f"warning: this directory declares {declared!r} (.mien) but it is "
+                f"not allowed; using the active {active!r}. Run `mien allow` to "
+                f"trust it.", err=True)
+            return active
+        missing = "" if declared in cfg.profiles else \
+            f" (and {declared!r} is not in your config)"
+        raise click.ClickException(
+            f"this directory declares profile {declared!r} in .mien but it is not "
+            f"allowed yet{missing}. Run `mien allow` to approve it — a checked-out "
+            f".mien cannot choose an identity until you do — or remove the file.")
+
     try:
         from_dir = resolve_profile(cfg.profiles, _logical_cwd())
     except AmbiguousScope as exc:
@@ -1256,10 +1284,54 @@ def which_cmd() -> None:
         # Deliberately silent on stdout: callers substitute this into other
         # commands, so printing anything here would be taken for a profile name.
         raise click.ClickException(
-            f"no profile claims {_logical_cwd()}. Add a default_for scope to a "
-            "profile, or name one explicitly."
+            f"no profile claims {_logical_cwd()}. Declare one with `mien claim "
+            "<profile>` (writes a local .mien), add a default_for scope, or name "
+            "one explicitly."
         )
     click.echo(name)
+
+
+@main.command("allow")
+def allow_cmd() -> None:
+    """Approve the project-local `.mien` declaration so it can drive identity here.
+
+    A checked-out `.mien` names a profile but does not act until you approve this
+    exact (path, profile) — so a cloned repository's `.mien` is inert until you
+    say so, and an edited one must be re-approved. Also adds `.mien` to your
+    global git ignore, since it is a private, local marker.
+    """
+    cfg = _require_config()
+    declared, decl_path = find_declaration(_logical_cwd())
+    if not declared or not decl_path:
+        raise click.ClickException(
+            "no .mien declaration found here or above. Create one with "
+            "`mien claim <profile>`.")
+    if declared not in cfg.profiles:
+        raise click.ClickException(
+            f".mien declares {declared!r}, which is not in your config.")
+    record_allow(decl_path, declared)
+    ensure_gitignored()
+    click.echo(f"allowed: this workspace acts as {declared} ({decl_path}).")
+
+
+@main.command("claim")
+@click.argument("profile")
+def claim_cmd(profile: str) -> None:
+    """Bind this directory to a profile in one step.
+
+    Writes a local `.mien` naming <profile>, adds `.mien` to your global git
+    ignore, and approves it — so `mien run`/`which` here (and everything beneath)
+    act as <profile> with no central scope to maintain.
+    """
+    cfg = _require_config()
+    if profile not in cfg.profiles:
+        raise click.ClickException(f"profile {profile!r} not found")
+    decl_path = write_declaration(_logical_cwd(), profile)
+    record_allow(decl_path, profile)
+    ensure_gitignored()
+    click.echo(
+        f"this directory now acts as {profile}: wrote {decl_path}, approved it, "
+        "and git-ignored .mien globally.")
 
 
 def _statusline_cwd() -> str:
@@ -1299,15 +1371,28 @@ def _identity_segment(cfg: Config, cwd: str) -> str:
     """
     env_profile = os.environ.get("MIEN_PROFILE") or None
     env_unknown = bool(env_profile and env_profile not in cfg.profiles)
+    # A project-local `.mien` declaration, if present. Approved → it is the claim
+    # (it outranks central scopes, as in resolution); present-but-unapproved →
+    # surfaced as pending so the segment invites `mien allow` rather than acting.
+    declared, decl_path = find_declaration(cwd)
+    declared_ok = bool(
+        declared and decl_path and declared in cfg.profiles
+        and is_allowed(decl_path, declared)
+    )
+    if declared and not declared_ok and not env_profile:
+        return render_segment(None, None, pending=declared)
     claimed: str | None = None
     source: str | None = "dir"
     ambiguous = False
-    try:
-        claimed, source = claimed_profile(
-            cfg.profiles, cwd, remote=git_origin_remote(cwd)
-        )
-    except AmbiguousScope:
-        ambiguous = True
+    if declared_ok:
+        claimed, source = declared, "dir"
+    else:
+        try:
+            claimed, source = claimed_profile(
+                cfg.profiles, cwd, remote=git_origin_remote(cwd)
+            )
+        except AmbiguousScope:
+            ambiguous = True
     author_email = git_author_email(cwd)
     author = profile_for_email(cfg.profiles, author_email) if author_email else None
     return render_segment(

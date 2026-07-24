@@ -129,6 +129,74 @@ def test_whoami_json_flag_still_emits_machine_readable(runner, tmp_path, monkeyp
     assert data["owns_remotes"] == ["github.com/acme-*/*"]
 
 
+def _project_env(tmp_path, monkeypatch, *profiles):
+    from mien.config import (BackendConfig, Config, Profile, SecretNaming,
+                             save_config)
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.delenv("MIEN_PROFILE", raising=False)
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={p: Profile(name=p) for p in profiles},
+    ))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    monkeypatch.setattr("mien.cli._logical_cwd", lambda: str(ws))
+    return ws
+
+
+def test_which_refuses_an_unapproved_mien(tmp_path, monkeypatch):
+    """Security: a checked-out .mien must NOT drive the acting identity until the
+    user approves it — `which`/`run` fail loud rather than silently route."""
+    ws = _project_env(tmp_path, monkeypatch, "work")
+    (ws / ".mien").write_text("work\n")
+    result = CliRunner().invoke(main, ["which"])
+    assert result.exit_code != 0
+    assert "not allowed" in result.output and "mien allow" in result.output
+
+
+def test_allow_then_which_routes_to_the_declared_profile(tmp_path, monkeypatch):
+    ws = _project_env(tmp_path, monkeypatch, "work")
+    (ws / ".mien").write_text("work\n")
+    assert CliRunner().invoke(main, ["allow"]).exit_code == 0
+    result = CliRunner().invoke(main, ["which"])
+    assert result.exit_code == 0 and result.output.strip() == "work"
+
+
+def test_claim_writes_allows_and_routes_in_one_step(tmp_path, monkeypatch):
+    ws = _project_env(tmp_path, monkeypatch, "arinyaho")
+    assert CliRunner().invoke(main, ["claim", "arinyaho"]).exit_code == 0
+    assert (ws / ".mien").read_text().strip() == "arinyaho"
+    assert CliRunner().invoke(main, ["which"]).output.strip() == "arinyaho"
+    # .mien added to the global git ignore, not the repo.
+    assert ".mien" in (tmp_path / "xdg" / "git" / "ignore").read_text()
+
+
+def test_claim_rejects_an_unknown_profile(tmp_path, monkeypatch):
+    _project_env(tmp_path, monkeypatch, "arinyaho")
+    result = CliRunner().invoke(main, ["claim", "ghost"])
+    assert result.exit_code != 0 and "not found" in result.output
+
+
+def test_active_profile_overrides_an_unapproved_declaration(tmp_path, monkeypatch):
+    ws = _project_env(tmp_path, monkeypatch, "work", "arinyaho")
+    (ws / ".mien").write_text("work\n")
+    monkeypatch.setenv("MIEN_PROFILE", "arinyaho")
+    result = CliRunner().invoke(main, ["which"])
+    assert result.exit_code == 0 and "arinyaho" in result.output
+
+
+def test_changing_the_declaration_reblocks_until_reapproved(tmp_path, monkeypatch):
+    ws = _project_env(tmp_path, monkeypatch, "work", "arinyaho")
+    (ws / ".mien").write_text("work\n")
+    CliRunner().invoke(main, ["allow"])
+    (ws / ".mien").write_text("arinyaho\n")  # edited to a different profile
+    result = CliRunner().invoke(main, ["which"])
+    assert result.exit_code != 0 and "not allowed" in result.output
+
+
 def _github_profile(runner, mien_cfg, mocker, username="octocat"):
     mocker.patch("mien.cli.load_backend").return_value.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nmien-\n")
