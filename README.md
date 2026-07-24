@@ -130,6 +130,13 @@ The identity you would act as is worth seeing *before* you act, not after a pers
 { "statusLine": { "type": "command", "command": "mien statusline" } }
 ```
 
+The same segment shows in an ordinary terminal via `mien prompt` — so the indicator follows you into any interactive shell, not only Claude Code's status bar (it renders in a human terminal's prompt, not inside an agent's non-interactive turn):
+
+```bash
+# zsh
+setopt PROMPT_SUBST; RPROMPT='$(mien prompt)'
+```
+
 ```
 🟢 mien:work                       # this place's identity agrees with what's active
 🔴 mien:personal ✗ repo is work's  # personal is active, but this repo belongs to work

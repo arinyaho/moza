@@ -279,6 +279,43 @@ def _run_guard(cwd, monkeypatch, mien_profile=None, remote=None, author_email=No
     return CliRunner().invoke(main, args)
 
 
+def _run_prompt(cwd, monkeypatch, mien_profile=None, remote=None, author_email=None):
+    if mien_profile is None:
+        monkeypatch.delenv("MIEN_PROFILE", raising=False)
+    else:
+        monkeypatch.setenv("MIEN_PROFILE", mien_profile)
+    monkeypatch.setattr("mien.cli._logical_cwd", lambda: cwd)
+    monkeypatch.setattr("mien.cli.git_origin_remote", lambda _cwd: remote)
+    monkeypatch.setattr("mien.cli.git_author_email", lambda _cwd: author_email)
+    return CliRunner().invoke(main, ["prompt"])
+
+
+def test_prompt_shows_the_segment_from_the_shell_cwd(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch, work=["github.com/acme-*/*"])
+    result = _run_prompt("/flat/api", monkeypatch, mien_profile="work",
+                         remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0
+    assert "🟢" in result.output and "mien:work" in result.output
+    # No trailing newline — it embeds into a prompt.
+    assert not result.output.endswith("\n")
+
+
+def test_prompt_flags_a_mismatch(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch,
+                       work=["github.com/acme-*/*"], personal=["github.com/me/*"])
+    result = _run_prompt("/flat/api", monkeypatch, mien_profile="personal",
+                         remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0
+    assert "🔴" in result.output and "repo is work's" in result.output
+
+
+def test_prompt_is_silent_without_a_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "nope.json"))
+    result = _run_prompt("/flat/api", monkeypatch, mien_profile="work",
+                         remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0 and result.output == ""
+
+
 def test_guard_blocks_a_wrong_active_identity(tmp_path, monkeypatch):
     _write_cfg_remotes(tmp_path, monkeypatch,
                        work=["github.com/acme-*/*"], personal=["github.com/me/*"])

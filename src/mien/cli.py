@@ -1287,6 +1287,36 @@ def _statusline_cwd() -> str:
     return workspace.get("current_dir") or data.get("cwd") or os.getcwd()
 
 
+def _identity_segment(cfg: Config, cwd: str) -> str:
+    """Render the identity segment for ``cwd`` — shared by `statusline` (cwd from
+    Claude Code's JSON) and `prompt` (cwd from the shell). Compares the active
+    `MIEN_PROFILE` against whose place this is (repo remote owner, then a
+    directory scope) and the git author a commit would carry. Secret-free: reads
+    only profile names and scopes, never the backend.
+
+    Remote/author are advisory display only, never an acting-identity choice — a
+    checked-out repo controls both, so they inform this segment, not run/exec.
+    """
+    env_profile = os.environ.get("MIEN_PROFILE") or None
+    env_unknown = bool(env_profile and env_profile not in cfg.profiles)
+    claimed: str | None = None
+    source: str | None = "dir"
+    ambiguous = False
+    try:
+        claimed, source = claimed_profile(
+            cfg.profiles, cwd, remote=git_origin_remote(cwd)
+        )
+    except AmbiguousScope:
+        ambiguous = True
+    author_email = git_author_email(cwd)
+    author = profile_for_email(cfg.profiles, author_email) if author_email else None
+    return render_segment(
+        env_profile, claimed,
+        source=source or "dir", author_profile=author,
+        ambiguous=ambiguous, env_unknown=env_unknown,
+    )
+
+
 @main.command("statusline")
 def statusline_cmd() -> None:
     """Emit a one-line mien identity segment for a Claude Code status line.
@@ -1312,34 +1342,33 @@ def statusline_cmd() -> None:
         cfg = load_config()
         if cfg is None:
             return  # mien is not set up here — stay silent rather than nag.
-        env_profile = os.environ.get("MIEN_PROFILE") or None
-        env_unknown = bool(env_profile and env_profile not in cfg.profiles)
-        cwd = _statusline_cwd()
-        claimed: str | None = None
-        source: str | None = "dir"
-        ambiguous = False
-        try:
-            # Advisory display only — the git remote is repo-controlled and must
-            # never pick an identity that acts, so this path is the status line's,
-            # not run/exec's. See the resolution design.
-            claimed, source = claimed_profile(
-                cfg.profiles, cwd, remote=git_origin_remote(cwd)
-            )
-        except AmbiguousScope:
-            ambiguous = True
-        # Who a commit here would actually be authored as — catches the wrong
-        # self even when no profile is active. Confined to a positively-known
-        # email (profile_for_email returns None otherwise) so an unrecognized
-        # address never nags.
-        author_email = git_author_email(cwd)
-        author = profile_for_email(cfg.profiles, author_email) if author_email else None
-        click.echo(
-            render_segment(
-                env_profile, claimed,
-                source=source or "dir", author_profile=author,
-                ambiguous=ambiguous, env_unknown=env_unknown,
-            )
-        )
+        click.echo(_identity_segment(cfg, _statusline_cwd()))
+    except Exception:
+        return
+
+
+@main.command("prompt")
+def prompt_cmd() -> None:
+    """Emit the identity segment for a shell prompt (e.g. zsh `RPROMPT`).
+
+    The same segment as `mien statusline`, but resolved from THIS shell's own
+    directory and `MIEN_PROFILE` rather than Claude Code's session JSON — so the
+    ambient "who am I here" shows in an ordinary terminal too, not only inside
+    Claude Code. Wire it into a prompt:
+
+        # zsh
+        setopt PROMPT_SUBST; RPROMPT='$(mien prompt)'
+        # bash
+        PROMPT_COMMAND='PS1="… $(mien prompt) "'
+
+    Secret-free and never errors — prints nothing on any failure, and nothing
+    when mien is unconfigured — so it is safe to run on every prompt.
+    """
+    try:
+        cfg = load_config()
+        if cfg is None:
+            return
+        click.echo(_identity_segment(cfg, _logical_cwd()), nl=False)
     except Exception:
         return
 

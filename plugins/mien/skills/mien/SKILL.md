@@ -58,8 +58,14 @@ $MIEN which                         # profile claimed by the current directory
 $MIEN run -- <cmd...>               # run cmd as that profile
 $MIEN token google --profile <p>    # mint a fresh google access token (for curl)
 $MIEN statusline                    # one-line identity segment for a Claude Code status line
+$MIEN prompt                        # same segment for a shell prompt (zsh RPROMPT / bash PS1)
 $MIEN guard                         # exit non-zero if the identity is confidently wrong for this repo
 ```
+
+**Ambient identity across harnesses.** Three surfaces show/enforce "who am I here", with different reach:
+- `mien statusline` — the **Claude Code** status line (wired via `.claude/settings.json` `statusLine`). Claude Code-specific; other harnesses (e.g. Codex) expose no equivalent status-line hook.
+- `mien prompt` — a **shell prompt** segment (`RPROMPT='$(mien prompt)'`), so the same indicator shows in any ordinary terminal, independent of harness.
+- `mien guard` — the **enforcement**, and it is harness-agnostic: as a git pre-commit hook it blocks a mis-authored commit in *any* session (Claude Code, Codex, a plain shell), and it is the strongest of the three guarantees. Prefer it when the goal is prevention rather than display.
 
 **Refusal gate.** `mien guard` is the acting counterpart of the status line: it exits non-zero (refusing the action) only on a confident mismatch — the active `MIEN_PROFILE`, or the git author a commit would carry, positively belongs to a different profile than the repo's `origin` owner. If the user wants mis-authored commits blocked, wire it as a pre-commit hook: `echo 'exec mien guard' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit` (or a global `core.hooksPath`). It fails open (allows) on any uncertainty or error, and every refusal is overridable (`MIEN_GUARD=off`, `--force`, `git commit --no-verify`). Blocking with repo signals is safe (a crafted remote at worst causes a false refusal you override); the acting path still never trusts the repo.
 
