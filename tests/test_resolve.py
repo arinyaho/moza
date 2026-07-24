@@ -1,7 +1,9 @@
 import pytest
 
 from mien.config import Profile
-from mien.resolve import AmbiguousScope, expand_scope, match_base, resolve_profile
+from mien.resolve import (AmbiguousScope, claimed_profile, expand_scope,
+                          match_base, normalize_remote, resolve_profile,
+                          resolve_remote_profile)
 
 
 def prof(name: str, *globs: str) -> Profile:
@@ -10,6 +12,89 @@ def prof(name: str, *globs: str) -> Profile:
 
 def profiles(*ps: Profile) -> dict[str, Profile]:
     return {p.name: p for p in ps}
+
+
+def rprof(name: str, *remotes: str) -> Profile:
+    return Profile(name=name, owns_remotes=list(remotes))
+
+
+class TestNormalizeRemote:
+    @pytest.mark.parametrize("url", [
+        "https://github.com/octo/widget.git",
+        "https://github.com/octo/widget",
+        "git@github.com:octo/widget.git",
+        "ssh://git@github.com/octo/widget",
+        "https://user@github.com/octo/widget.git",
+        "https://github.com/Octo/Widget",            # case-folded
+    ])
+    def test_every_form_of_the_same_repo_normalizes_alike(self, url):
+        assert normalize_remote(url) == "github.com/octo/widget"
+
+    @pytest.mark.parametrize("url", [
+        "ssh://git@github.com:22/octo/widget",
+        "ssh://git@ssh.github.com:443/octo/widget.git",   # GitHub's firewall form
+        "https://github.com:443/octo/widget",
+    ])
+    def test_a_port_is_stripped_from_the_host(self, url):
+        # A ported remote must still match an owns_remotes glob like github.com/octo/*.
+        norm = normalize_remote(url)
+        assert ":22" not in norm and ":443" not in norm
+        assert norm.endswith("/octo/widget")
+
+    def test_a_local_path_is_left_as_a_lowercased_string(self):
+        # No host; simply must not crash and must not spuriously match a glob.
+        assert normalize_remote("/srv/git/Repo") == "/srv/git/repo"
+
+
+class TestResolveRemoteProfile:
+    def test_matches_the_owning_profile(self):
+        ps = profiles(rprof("work", "github.com/acme-*/*"),
+                      rprof("personal", "github.com/me/*"))
+        assert resolve_remote_profile(ps, "git@github.com:acme-core/api.git") == "work"
+        assert resolve_remote_profile(ps, "https://github.com/me/dots") == "personal"
+
+    def test_a_profile_can_own_several_orgs(self):
+        # A personal account owns its user repos AND the orgs it manages.
+        ps = profiles(rprof("me", "github.com/me/*", "github.com/me-labs-*/*"))
+        assert resolve_remote_profile(ps, "https://github.com/me/blog") == "me"
+        assert resolve_remote_profile(ps, "git@github.com:me-labs-x/site.git") == "me"
+
+    def test_no_owner_returns_none(self):
+        ps = profiles(rprof("work", "github.com/acme-*/*"))
+        assert resolve_remote_profile(ps, "https://github.com/someone-else/x") is None
+
+    def test_a_bare_owner_glob_claims_its_repos(self):
+        ps = profiles(rprof("work", "github.com/acme"))
+        assert resolve_remote_profile(ps, "https://github.com/acme/api.git") == "work"
+
+    def test_an_equal_specificity_tie_raises(self):
+        ps = profiles(rprof("a", "github.com/x-*/*"), rprof("b", "github.com/*/*"))
+        # both patterns match; different lengths → longer ('x-*') wins, no raise
+        assert resolve_remote_profile(ps, "https://github.com/x-1/r") == "a"
+        # genuinely equal-length rival patterns tie
+        ps2 = profiles(rprof("a", "github.com/x/*"), rprof("b", "github.com/x/*"))
+        with pytest.raises(AmbiguousScope):
+            resolve_remote_profile(ps2, "https://github.com/x/r")
+
+
+class TestClaimedProfile:
+    def test_remote_owner_wins_over_directory_scope(self, monkeypatch):
+        ps = {"work": Profile(name="work", owns_remotes=["github.com/acme-*/*"]),
+              "personal": Profile(name="personal", default_for=["*/flat/*"])}
+        name, source = claimed_profile(
+            ps, "/x/flat/api", remote="https://github.com/acme-core/api.git")
+        assert (name, source) == ("work", "repo")
+
+    def test_falls_back_to_directory_when_no_remote_match(self):
+        ps = {"work": Profile(name="work", owns_remotes=["github.com/acme-*/*"]),
+              "personal": Profile(name="personal", default_for=["*/flat/*"])}
+        name, source = claimed_profile(
+            ps, "/x/flat/api", remote="https://github.com/nobody/api.git")
+        assert (name, source) == ("personal", "dir")
+
+    def test_nothing_claims_it(self):
+        ps = {"work": Profile(name="work", owns_remotes=["github.com/acme-*/*"])}
+        assert claimed_profile(ps, "/x/y", remote=None) == (None, None)
 
 
 class TestMatchBase:

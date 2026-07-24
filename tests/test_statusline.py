@@ -27,9 +27,14 @@ class TestRenderSegment:
         out = render_segment("personal", "work")
         assert "🔴" in out
         assert "personal" in out and "work" in out
-        assert "✗" in out
+        assert "✗" in out and "dir wants work" in out
 
-    def test_ambiguous_dir_without_env_is_alarm(self):
+    def test_env_disagrees_with_repo_is_alarm_with_repo_wording(self):
+        # Same catch, but the claim came from the git remote owner.
+        out = render_segment("personal", "work", source="repo")
+        assert "🔴" in out and "repo is work's" in out
+
+    def test_ambiguous_without_env_is_alarm(self):
         out = render_segment(None, None, ambiguous=True)
         assert "🔴" in out and "ambiguous" in out
 
@@ -58,11 +63,25 @@ def _write_cfg(tmp_path, monkeypatch, **profiles):
     ))
 
 
-def _run(cwd, monkeypatch, mien_profile=None):
+def _write_cfg_remotes(tmp_path, monkeypatch, **owns):
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={name: Profile(name=name, owns_remotes=pats)
+                  for name, pats in owns.items()},
+    ))
+
+
+def _run(cwd, monkeypatch, mien_profile=None, remote=None):
     if mien_profile is None:
         monkeypatch.delenv("MIEN_PROFILE", raising=False)
     else:
         monkeypatch.setenv("MIEN_PROFILE", mien_profile)
+    # Mock the git I/O so directory-based tests never shell out and remote tests
+    # supply a fixed origin.
+    monkeypatch.setattr("mien.cli.git_origin_remote", lambda _cwd: remote)
     payload = json.dumps({"workspace": {"current_dir": cwd}})
     return CliRunner().invoke(main, ["statusline"], input=payload)
 
@@ -108,3 +127,42 @@ def test_statusline_flags_a_stale_active_profile(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "🔴" in result.output and "deleted-profile" in result.output
     assert "unknown" in result.output
+
+
+def test_statusline_resolves_by_git_remote_owner(tmp_path, monkeypatch):
+    """Flat layout: no directory scope, but the repo's origin names its owner."""
+    _write_cfg_remotes(tmp_path, monkeypatch,
+                       work=["github.com/acme-*/*"], personal=["github.com/me/*"])
+    result = _run("/anywhere/flat/api", monkeypatch,
+                  remote="git@github.com:acme-core/api.git")
+    assert result.exit_code == 0
+    assert "🟢" in result.output and "mien:work" in result.output
+
+
+def test_statusline_flags_wrong_identity_by_remote(tmp_path, monkeypatch):
+    """personal is active, but this repo's origin belongs to work."""
+    _write_cfg_remotes(tmp_path, monkeypatch,
+                       work=["github.com/acme-*/*"], personal=["github.com/me/*"])
+    result = _run("/anywhere/flat/api", monkeypatch, mien_profile="personal",
+                  remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0
+    assert "🔴" in result.output
+    assert "repo is work's" in result.output and "personal" in result.output
+
+
+def test_statusline_remote_owner_beats_a_directory_scope(tmp_path, monkeypatch):
+    """When both signals resolve and disagree, the repo's remote wins."""
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={
+            "work": Profile(name="work", owns_remotes=["github.com/acme-*/*"]),
+            "personal": Profile(name="personal", default_for=["*/flat/*"]),
+        },
+    ))
+    result = _run("/anywhere/flat/api", monkeypatch,
+                  remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0
+    assert "🟢" in result.output and "mien:work" in result.output

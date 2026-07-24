@@ -90,6 +90,35 @@ of which is `*`.
 Distinct from `project_env`, which maps directories to environment *values*;
 `default_for` maps directories to *which identity you are*.
 
+### `owns_remotes` (array)
+
+Git-remote globs this profile owns. Where `default_for` claims identity by
+directory, `owns_remotes` claims it by the repository's `origin` remote — by
+*what the repo is* rather than where it sits — so it fits repositories kept side
+by side with no per-employer directory convention.
+
+```jsonc
+["github.com/acme-*/*", "github.com/me/*"]
+```
+
+The remote is normalized before matching: the scheme, any `user@`, and a trailing
+`.git` are stripped and an ssh `:` becomes `/`, so every form of the same URL
+(`https://…`, `git@github.com:…`, `ssh://…`) reduces to one canonical
+`host/path`, lower-cased. A pattern matches that form and everything under it, so
+a bare owner (`github.com/acme`) claims the owner and its repositories. The
+longest match wins; an exact tie is an error, as with `default_for`. A profile may
+list several — a personal account and the organizations it also manages. Same
+list-of-strings rule: a bare string is rejected, not coerced.
+
+**Advisory only.** `owns_remotes` drives the status line (`mien statusline`) — it
+displays whose repository this is and warns when the active `MIEN_PROFILE`
+disagrees. It is deliberately *not* consulted by `mien which` / `run` / `exec`,
+which choose an identity that *acts*: a checked-out repository controls its own
+`origin`, and letting a repository select an acting identity would violate the
+rule that a clone cannot influence which identity acts. A directory scope is part
+of your own config and may select an acting identity; a repository's self-declared
+remote may not.
+
 ### `project_env` (array)
 
 Non-secret environment values applied ambiently by directory. `mien env sync`

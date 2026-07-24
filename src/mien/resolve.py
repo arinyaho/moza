@@ -16,6 +16,7 @@ import fnmatch
 import glob
 import os
 import re
+import subprocess
 
 from mien.config import Profile
 
@@ -162,3 +163,100 @@ def resolve_profile(profiles: dict[str, Profile], path: str) -> str | None:
             "Narrow one of their default_for scopes, or name a profile explicitly."
         )
     return winners[0]
+
+
+def normalize_remote(url: str) -> str:
+    """Reduce a git remote URL to a canonical, lower-cased ``host/path``.
+
+    The same repository is reachable as `https://github.com/o/r.git`,
+    `git@github.com:o/r.git`, or `ssh://git@github.com/o/r` — all of which name
+    the same owner. Stripping the scheme, any `user@`, a trailing `.git`, and
+    normalizing the scp-form `:` to `/` lets one `owns_remotes` glob match every
+    form. Lower-casing keeps host and owner matching case-insensitively (a case
+    mismatch would be a false *miss* — the status line failing to warn — which is
+    the worse direction for a safety signal).
+    """
+    s = url.strip()
+    if s.endswith(".git"):
+        s = s[:-4]
+    if "://" in s:
+        s = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", s)  # drop scheme
+        s = re.sub(r"^[^/@]+@", "", s)                     # drop user@
+        s = re.sub(r"^([^/:]+):\d+", r"\1", s)             # drop :port from the host
+                                                           # (e.g. GitHub's ssh.github.com:443)
+    elif re.match(r"^[^/]+@[^:/]+:", s):                   # scp-like git@host:path
+        s = re.sub(r"^[^@]+@", "", s).replace(":", "/", 1)
+    return s.rstrip("/").lower()
+
+
+def resolve_remote_profile(profiles: dict[str, Profile], remote: str) -> str | None:
+    """Return the profile whose ``owns_remotes`` claims ``remote``, or None.
+
+    ``remote`` is normalized (`normalize_remote`) and matched against each
+    profile's globs — both the pattern itself and ``<pattern>/*``, so a bare
+    owner glob (`github.com/arinyaho`) claims the owner and everything under it.
+    As with directory scopes, the longest matching pattern wins and an exact tie
+    raises AmbiguousScope rather than guessing.
+    """
+    norm = normalize_remote(remote)
+    best: dict[str, int] = {}
+    for name in sorted(profiles):
+        for raw in profiles[name].owns_remotes:
+            pat = raw.strip().rstrip("/").lower()
+            if fnmatch.fnmatch(norm, pat) or fnmatch.fnmatch(norm, f"{pat}/*"):
+                score = len(pat)
+                if score > best.get(name, -1):
+                    best[name] = score
+    if not best:
+        return None
+    top = max(best.values())
+    winners = sorted(n for n, s in best.items() if s == top)
+    if len(winners) > 1:
+        raise AmbiguousScope(
+            f"remote {norm!r} is claimed with equal specificity by: "
+            f"{', '.join(winners)}. Narrow one of their owns_remotes globs."
+        )
+    return winners[0]
+
+
+def git_origin_remote(cwd: str) -> str | None:
+    """The `origin` remote URL of the repository at ``cwd``, or None.
+
+    Thin git I/O, kept separate so the matching logic stays pure and testable and
+    callers can mock it. Never raises: no repo, no `origin`, or no `git` on PATH
+    all return None, so a status line built on it stays silent rather than failing.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def claimed_profile(
+    profiles: dict[str, Profile], path: str, *, remote: str | None = None
+) -> tuple[str | None, str | None]:
+    """The profile a location claims, and how — by the repository's remote owner
+    first, then by directory ``default_for``.
+
+    Returns ``(name, source)`` where source is ``"repo"`` or ``"dir"`` (or
+    ``(None, None)`` when nothing claims it), so a caller can phrase the two
+    differently. Remote is the stronger signal — a repository's owner is
+    objective, a path glob is a heuristic — so it wins when both would match.
+    Raises AmbiguousScope from whichever layer is itself ambiguous.
+
+    Note: this is for *display* (the status line). Choosing an identity that acts
+    must not consider the remote, since a checked-out repository controls it; see
+    the resolution design.
+    """
+    if remote:
+        by_remote = resolve_remote_profile(profiles, remote)
+        if by_remote:
+            return by_remote, "repo"
+    by_dir = resolve_profile(profiles, path)
+    return (by_dir, "dir" if by_dir else None)

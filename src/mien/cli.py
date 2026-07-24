@@ -37,7 +37,7 @@ from mien.config import (
 from mien.env import build_env
 from mien.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from mien.oauth import exchange_refresh_token, google_installed_app_flow
-from mien.resolve import AmbiguousScope, resolve_profile
+from mien.resolve import AmbiguousScope, claimed_profile, git_origin_remote, resolve_profile
 from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from mien.secret_naming import render_name
 from mien.shell import emit_unset, emit_use, render_shell_init
@@ -1248,10 +1248,12 @@ def statusline_cmd() -> None:
         "statusLine": { "type": "command", "command": "mien statusline" }
 
     It reads the session JSON Claude Code passes on stdin (for the directory),
-    then compares what `MIEN_PROFILE` is set to against the profile the directory
-    claims, and prints a coloured segment — green when they agree, red when the
-    active identity is wrong *for this directory*, which is the mis-commit this
-    exists to catch.
+    then compares what `MIEN_PROFILE` is set to against whose place this is — the
+    repository's `origin` owner (`owns_remotes`) first, then a directory
+    (`default_for`) scope — and prints a coloured segment: green when they agree,
+    red when the active identity is wrong here, which is the mis-commit this
+    exists to catch. The remote owner is advisory only (display and warning); it
+    never selects an identity that acts, since a checked-out repo controls it.
 
     Secret-free and offline: it reads only the config's profile names and scopes,
     never the backend, so it is cheap enough to run at status-line frequency. And
@@ -1264,16 +1266,23 @@ def statusline_cmd() -> None:
             return  # mien is not set up here — stay silent rather than nag.
         env_profile = os.environ.get("MIEN_PROFILE") or None
         env_unknown = bool(env_profile and env_profile not in cfg.profiles)
-        dir_profile: str | None = None
+        cwd = _statusline_cwd()
+        claimed: str | None = None
+        source: str | None = "dir"
         ambiguous = False
         try:
-            dir_profile = resolve_profile(cfg.profiles, _statusline_cwd())
+            # Advisory display only — the git remote is repo-controlled and must
+            # never pick an identity that acts, so this path is the status line's,
+            # not run/exec's. See the resolution design.
+            claimed, source = claimed_profile(
+                cfg.profiles, cwd, remote=git_origin_remote(cwd)
+            )
         except AmbiguousScope:
             ambiguous = True
         click.echo(
             render_segment(
-                env_profile, dir_profile,
-                ambiguous=ambiguous, env_unknown=env_unknown,
+                env_profile, claimed,
+                source=source or "dir", ambiguous=ambiguous, env_unknown=env_unknown,
             )
         )
     except Exception:
