@@ -93,9 +93,32 @@ mien login personal --service slack --workspace team-a
 
 See `skills/mien/references/` for full docs.
 
+## Bind a workspace to an identity
+
+The simplest way to say "this workspace is `work`" is to declare it where the work is, with a `.mien` file:
+
+```bash
+mien claim work        # writes .mien, approves it, and git-ignores it globally
+```
+
+From then on, `mien run`/`mien which` (and everything beneath this directory) act as `work` with no central config to maintain. `.mien` is a private, local marker — `mien claim` adds it to your global git ignore so it never lands in a repo.
+
+Because a `.mien` is a checked-out file, it does not choose an identity until you approve it — a cloned repository's `.mien` is **inert** until you run `mien allow`, and an edited one must be re-approved:
+
+```
+$ cd some-cloned-repo && mien which
+Error: this directory declares profile 'work' in .mien but it is not allowed yet.
+Run `mien allow` to approve it — a checked-out .mien cannot choose an identity
+until you do — or remove the file.
+
+$ mien allow           # you decide, not the repo
+```
+
+This is direnv's `allow`, applied to identity: the declaration lives with the project, but only your approval — recorded in your own config — lets it act. Precedence is `MIEN_PROFILE` (an explicit `mien use`) → an approved `.mien` → central scopes below.
+
 ## Project-pinned identity
 
-A profile can claim directories, so work in those directories runs as the right identity without anyone naming it:
+For repositories scattered with no per-workspace file — or when you'd rather declare once for a whole tree or a whole GitHub org — a profile can claim directories (`default_for`) or remote owners (`owns_remotes`) centrally. A `.mien` in a workspace overrides these. Directory scopes:
 
 ```json
 "profiles": {

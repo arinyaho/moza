@@ -27,6 +27,7 @@ def render_segment(
     author_profile: str | None = None,
     ambiguous: bool = False,
     env_unknown: bool = False,
+    pending: str | None = None,
 ) -> str:
     """Format the mien identity segment.
 
@@ -51,6 +52,10 @@ def render_segment(
     def why(claimed: str) -> str:
         return f"repo is {claimed}'s" if source == "repo" else f"dir wants {claimed}"
 
+    # A project-local `.mien` declaration is present but not yet approved — it
+    # names an identity but does not act until `mien allow`.
+    if pending and not env_profile:
+        return f"{_YELLOW}🟡 mien:{pending}? ✗ run 'mien allow'{_RESET}"
     # An active profile that no longer exists — a stale export in this shell.
     if env_profile and env_unknown:
         return f"{_RED}🔴 mien:{env_profile} ✗ unknown profile{_RESET}"
