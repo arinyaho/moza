@@ -24,18 +24,22 @@ def render_segment(
     claimed_profile: str | None,
     *,
     source: str = "dir",
+    author_profile: str | None = None,
     ambiguous: bool = False,
     env_unknown: bool = False,
 ) -> str:
     """Format the mien identity segment.
 
-    Arguments are mien's two independent signals for "who am I here":
+    Arguments are mien's signals for "who am I here":
     - ``env_profile``: the ``MIEN_PROFILE`` active in this session (inherited
       from the launching shell), or ``None``.
     - ``claimed_profile``: the profile this location claims — by the repository's
       remote owner or by a directory ``default_for`` scope — or ``None``.
     - ``source``: ``"repo"`` if the claim came from the git remote owner,
       ``"dir"`` if from a directory scope; only affects the mismatch wording.
+    - ``author_profile``: the profile the repository's git ``user.email`` belongs
+      to, or ``None`` when it matches no profile. Compared against the claim to
+      catch a commit authored as the wrong self even with no profile activated.
     - ``ambiguous``: the location is claimed by two profiles with equal
       specificity (resolution would refuse to guess).
     - ``env_unknown``: ``MIEN_PROFILE`` names a profile that is not in the
@@ -44,15 +48,21 @@ def render_segment(
     The alarm cases come first: a wrong or unknown active identity is the failure
     this segment exists to surface, so it must win over the calm cases.
     """
+    def why(claimed: str) -> str:
+        return f"repo is {claimed}'s" if source == "repo" else f"dir wants {claimed}"
+
     # An active profile that no longer exists — a stale export in this shell.
     if env_profile and env_unknown:
         return f"{_RED}🔴 mien:{env_profile} ✗ unknown profile{_RESET}"
     # Active identity disagrees with what this location claims: you are set up to
-    # act as the wrong person here. The core catch.
+    # act as the wrong person here.
     if env_profile and claimed_profile and env_profile != claimed_profile:
-        why = (f"repo is {claimed_profile}'s" if source == "repo"
-               else f"dir wants {claimed_profile}")
-        return f"{_RED}🔴 mien:{env_profile} ✗ {why}{_RESET}"
+        return f"{_RED}🔴 mien:{env_profile} ✗ {why(claimed_profile)}{_RESET}"
+    # The git author would commit as a *different* profile than the one this
+    # place belongs to — the mis-commit that lands even when nothing was
+    # activated (or when the right profile is active but user.email is stale).
+    if author_profile and claimed_profile and author_profile != claimed_profile:
+        return f"{_RED}🔴 author:{author_profile} ✗ {why(claimed_profile)}{_RESET}"
     # The location is claimed ambiguously and nothing is set to break the tie —
     # mien would refuse to route; surface it rather than pick silently.
     if ambiguous and not env_profile:

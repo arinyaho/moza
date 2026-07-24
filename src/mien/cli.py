@@ -37,7 +37,8 @@ from mien.config import (
 from mien.env import build_env
 from mien.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from mien.oauth import exchange_refresh_token, google_installed_app_flow
-from mien.resolve import AmbiguousScope, claimed_profile, git_origin_remote, resolve_profile
+from mien.resolve import (AmbiguousScope, claimed_profile, git_author_email,
+                          git_origin_remote, profile_for_email, resolve_profile)
 from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from mien.secret_naming import render_name
 from mien.shell import emit_unset, emit_use, render_shell_init
@@ -1279,10 +1280,17 @@ def statusline_cmd() -> None:
             )
         except AmbiguousScope:
             ambiguous = True
+        # Who a commit here would actually be authored as — catches the wrong
+        # self even when no profile is active. Confined to a positively-known
+        # email (profile_for_email returns None otherwise) so an unrecognized
+        # address never nags.
+        author_email = git_author_email(cwd)
+        author = profile_for_email(cfg.profiles, author_email) if author_email else None
         click.echo(
             render_segment(
                 env_profile, claimed,
-                source=source or "dir", ambiguous=ambiguous, env_unknown=env_unknown,
+                source=source or "dir", author_profile=author,
+                ambiguous=ambiguous, env_unknown=env_unknown,
             )
         )
     except Exception:

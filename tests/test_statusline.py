@@ -47,6 +47,29 @@ class TestRenderSegment:
         out = render_segment("ghost", None, env_unknown=True)
         assert "🔴" in out and "ghost" in out and "unknown" in out
 
+    def test_wrong_git_author_is_alarm_even_with_nothing_active(self):
+        # Nothing activated, but the repo is work's and you'd commit as personal.
+        out = render_segment(None, "work", source="repo", author_profile="personal")
+        assert "🔴" in out and "author:personal" in out and "repo is work's" in out
+
+    def test_right_author_raises_no_alarm(self):
+        out = render_segment(None, "work", source="repo", author_profile="work")
+        assert "🟢" in out and "mien:work" in out
+
+    def test_unknown_author_does_not_nag(self):
+        # author_profile is None (email matched no profile) → no author alarm.
+        out = render_segment(None, "work", source="repo", author_profile=None)
+        assert "🟢" in out and "mien:work" in out
+
+    def test_env_mismatch_takes_precedence_over_author_mismatch(self):
+        out = render_segment("personal", "work", source="repo", author_profile="personal")
+        assert "🔴" in out and "mien:personal" in out and "repo is work's" in out
+
+    def test_author_alarm_fires_even_when_the_active_profile_is_right(self):
+        # Correctly activated work, but user.email is still personal's — stale git config.
+        out = render_segment("work", "work", source="repo", author_profile="personal")
+        assert "🔴" in out and "author:personal" in out
+
     def test_nothing_set_and_nothing_claims_is_neutral(self):
         out = render_segment(None, None)
         assert "🟡" in out and "no profile here" in out
@@ -74,14 +97,15 @@ def _write_cfg_remotes(tmp_path, monkeypatch, **owns):
     ))
 
 
-def _run(cwd, monkeypatch, mien_profile=None, remote=None):
+def _run(cwd, monkeypatch, mien_profile=None, remote=None, author_email=None):
     if mien_profile is None:
         monkeypatch.delenv("MIEN_PROFILE", raising=False)
     else:
         monkeypatch.setenv("MIEN_PROFILE", mien_profile)
-    # Mock the git I/O so directory-based tests never shell out and remote tests
-    # supply a fixed origin.
+    # Mock the git I/O so directory-based tests never shell out; remote/author
+    # tests supply a fixed origin and commit email.
     monkeypatch.setattr("mien.cli.git_origin_remote", lambda _cwd: remote)
+    monkeypatch.setattr("mien.cli.git_author_email", lambda _cwd: author_email)
     payload = json.dumps({"workspace": {"current_dir": cwd}})
     return CliRunner().invoke(main, ["statusline"], input=payload)
 
@@ -148,6 +172,67 @@ def test_statusline_flags_wrong_identity_by_remote(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "🔴" in result.output
     assert "repo is work's" in result.output and "personal" in result.output
+
+
+def _write_cfg_full(tmp_path, monkeypatch, profiles):
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles=profiles,
+    ))
+
+
+def test_statusline_flags_a_wrong_git_author(tmp_path, monkeypatch):
+    """The full mis-commit catch: no profile active, but the repo belongs to work
+    while `git config user.email` is personal's known address."""
+    from mien.config import GoogleService
+    _write_cfg_full(tmp_path, monkeypatch, {
+        "work": Profile(name="work", owns_remotes=["github.com/acme-*/*"],
+                        google=GoogleService(
+                            email="me@acme.example", oauth_client_id="c",
+                            oauth_client_secret_ref=None, refresh_token_ref=None,
+                            adc_ref=None, gcloud_config_name="work",
+                            default_project=None, gcloud_login_required=True)),
+        "personal": Profile(name="personal", google=GoogleService(
+                            email="me@personal.example", oauth_client_id="c",
+                            oauth_client_secret_ref=None, refresh_token_ref=None,
+                            adc_ref=None, gcloud_config_name="personal",
+                            default_project=None, gcloud_login_required=True)),
+    })
+    result = _run("/flat/api", monkeypatch,
+                  remote="https://github.com/acme-core/api.git",
+                  author_email="me@personal.example")
+    assert result.exit_code == 0
+    assert "🔴" in result.output
+    assert "author:personal" in result.output and "repo is work's" in result.output
+
+
+def test_statusline_is_calm_when_the_git_author_matches(tmp_path, monkeypatch):
+    from mien.config import GoogleService
+    _write_cfg_full(tmp_path, monkeypatch, {
+        "work": Profile(name="work", owns_remotes=["github.com/acme-*/*"],
+                        google=GoogleService(
+                            email="me@acme.example", oauth_client_id="c",
+                            oauth_client_secret_ref=None, refresh_token_ref=None,
+                            adc_ref=None, gcloud_config_name="work",
+                            default_project=None, gcloud_login_required=True)),
+    })
+    result = _run("/flat/api", monkeypatch,
+                  remote="https://github.com/acme-core/api.git",
+                  author_email="me@acme.example")
+    assert result.exit_code == 0
+    assert "🟢" in result.output and "mien:work" in result.output
+
+
+def test_statusline_does_not_nag_on_an_unknown_git_author(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch, work=["github.com/acme-*/*"])
+    result = _run("/flat/api", monkeypatch,
+                  remote="https://github.com/acme-core/api.git",
+                  author_email="someone@nowhere.example")
+    assert result.exit_code == 0
+    assert "🟢" in result.output and "mien:work" in result.output
 
 
 def test_statusline_remote_owner_beats_a_directory_scope(tmp_path, monkeypatch):
