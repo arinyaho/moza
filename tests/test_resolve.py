@@ -1,9 +1,42 @@
 import pytest
 
-from mien.config import Profile
+from mien.config import AtlassianService, GitHubService, GoogleService, Profile
 from mien.resolve import (AmbiguousScope, claimed_profile, expand_scope,
-                          match_base, normalize_remote, resolve_profile,
-                          resolve_remote_profile)
+                          match_base, normalize_remote, profile_for_email,
+                          resolve_profile, resolve_remote_profile)
+
+
+def _gp(name, *, google=None, atlassian=None, github=None):
+    g = GoogleService(email=google, oauth_client_id="c", oauth_client_secret_ref=None,
+                      refresh_token_ref=None, adc_ref=None, gcloud_config_name=name,
+                      default_project=None, gcloud_login_required=True) if google else None
+    a = AtlassianService(email=atlassian, api_token_ref="r",
+                         base_url="https://x.atlassian.net") if atlassian else None
+    h = GitHubService(username=github, host="github.com", token_ref="r") if github else None
+    return Profile(name=name, google=g, atlassian=a, github=h)
+
+
+class TestProfileForEmail:
+    def test_matches_google_and_atlassian_addresses(self):
+        ps = {"work": _gp("work", google="me@acme.example"),
+              "client": _gp("client", atlassian="me@client.example")}
+        assert profile_for_email(ps, "me@acme.example") == "work"
+        assert profile_for_email(ps, "me@client.example") == "client"
+
+    def test_matches_the_github_noreply_form_case_insensitively(self):
+        ps = {"me": _gp("me", github="Octo")}
+        assert profile_for_email(ps, "octo@users.noreply.github.com") == "me"
+        assert profile_for_email(ps, "OCTO@users.noreply.github.com") == "me"
+
+    def test_an_unknown_email_returns_none(self):
+        ps = {"work": _gp("work", google="me@acme.example")}
+        assert profile_for_email(ps, "stranger@nowhere.example") is None
+        assert profile_for_email(ps, "") is None
+
+    def test_an_email_shared_by_two_profiles_is_inconclusive(self):
+        ps = {"a": _gp("a", google="shared@x.example"),
+              "b": _gp("b", atlassian="shared@x.example")}
+        assert profile_for_email(ps, "shared@x.example") is None
 
 
 def prof(name: str, *globs: str) -> Profile:

@@ -134,10 +134,13 @@ The identity you would act as is worth seeing *before* you act, not after a pers
 🟢 mien:work                       # this place's identity agrees with what's active
 🔴 mien:personal ✗ repo is work's  # personal is active, but this repo belongs to work
 🔴 mien:personal ✗ dir wants work  # ...or a directory scope claims work
+🔴 author:personal ✗ repo is work's # nothing active, but git user.email would commit as personal
 🟡 mien:— no profile here          # nothing set, and nothing claims this place
 ```
 
 The red case is the one that matters: an agent session that inherited `personal` from the shell it launched in, sitting in a `work` repository, is exactly how the wrong identity commits.
+
+The `author:` case closes that even when you activate nothing: it compares the git `user.email` a commit here would carry against the emails your profiles already declare (their Google and Atlassian accounts, and the GitHub no-reply address). If that email positively belongs to a *different* profile than the repository's owner, it warns — including the subtle case where the right profile is active but `user.email` is still stale. It stays quiet on an email it does not recognize, so a legitimate alternate address raises no false alarm.
 
 It figures out whose place this is from two signals — the repository's `origin` owner (`owns_remotes`) and directory scopes (`default_for`) — so it works whether or not you organize by directory. If you keep repositories side by side with no per-employer folder, the remote owner is what makes it sharp:
 

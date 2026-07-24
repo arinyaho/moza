@@ -260,3 +260,55 @@ def claimed_profile(
             return by_remote, "repo"
     by_dir = resolve_profile(profiles, path)
     return (by_dir, "dir" if by_dir else None)
+
+
+def git_author_email(cwd: str) -> str | None:
+    """The email a commit in the repository at ``cwd`` would be authored as, or
+    None. Reads the effective `user.email` (repo-local then global), the same
+    value `git commit` would stamp. Thin, mockable git I/O; never raises.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "config", "user.email"],
+            capture_output=True, text=True, timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _profile_emails(profile: Profile) -> set[str]:
+    """The email addresses known to identify ``profile``, lower-cased.
+
+    Drawn from what the profile already declares — its Google and Atlassian
+    account emails, and the GitHub no-reply address derived from its username —
+    so a commit's `user.email` can be attributed to a profile without any new
+    configuration.
+    """
+    emails: set[str] = set()
+    if profile.google and profile.google.email:
+        emails.add(profile.google.email.lower())
+    if profile.atlassian and profile.atlassian.email:
+        emails.add(profile.atlassian.email.lower())
+    if profile.github and profile.github.username:
+        emails.add(f"{profile.github.username.lower()}@users.noreply.github.com")
+    return emails
+
+
+def profile_for_email(profiles: dict[str, Profile], email: str) -> str | None:
+    """Which profile a git-author ``email`` identifies, or None when it matches
+    no profile or (defensively) more than one.
+
+    Returning None for an unknown email is deliberate: the author cross-check
+    warns only on a *confident* mismatch — an email that positively belongs to a
+    different profile — and never on a merely unrecognized one, so a legitimate
+    alternate address raises no false alarm.
+    """
+    target = email.strip().lower()
+    if not target:
+        return None
+    owners = [name for name in sorted(profiles)
+              if target in _profile_emails(profiles[name])]
+    return owners[0] if len(owners) == 1 else None
