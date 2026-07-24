@@ -1,3 +1,9 @@
+import os
+import shutil
+import subprocess
+
+import pytest
+
 from mien.config import AtlassianService, GitHubService, GoogleService, Profile
 from mien.gitsync import (default_git_email, default_git_name, git_identity,
                           gitdir_pattern, hasconfig_patterns,
@@ -18,10 +24,10 @@ def _prof(name, **kw):
 
 
 class TestHasconfigPatterns:
-    def test_emits_both_url_shapes_verified_against_real_git(self):
-        # These exact strings were verified to make `git config user.email`
-        # resolve for https://, ssh://, and scp (git@host:owner) origins, and to
-        # NOT resolve for a different owner.
+    def test_emits_both_url_shapes(self):
+        # Exact strings pinned here; that they actually make `git config
+        # user.email` resolve for https/ssh/scp (and not for another owner) is
+        # verified by test_generated_includeif_resolves_the_author_in_real_git.
         pats = hasconfig_patterns("github.com/acme-inc/*")
         assert pats == [
             "hasconfig:remote.*.url:**/*github.com/acme-inc/**",
@@ -62,7 +68,7 @@ class TestGitIdentity:
 
 
 def test_gitdir_pattern():
-    assert gitdir_pattern("/home/me/ccp") == "gitdir:/home/me/ccp/**"
+    assert gitdir_pattern("/home/me/proj") == "gitdir:/home/me/proj/**"
 
 
 def test_render_profile_gitconfig():
@@ -71,11 +77,46 @@ def test_render_profile_gitconfig():
     assert "Managed by mien" in out
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_generated_includeif_resolves_the_author_in_real_git(tmp_path):
+    """The hasconfig patterns are finicky (a leading `**` can't cross a URL
+    scheme's `//`), so back the exact strings with git's own resolution: a repo
+    whose origin is owned resolves to the profile's email, one that isn't stays
+    empty — across https, ssh, and scp forms."""
+    home = tmp_path / "home"
+    home.mkdir()
+    pgc = tmp_path / "work.gitconfig"
+    pgc.write_text(render_profile_gitconfig("me@acme.example", "acme-me"))
+    blocks = [(c, str(pgc)) for c in hasconfig_patterns("github.com/acme-inc/*")]
+    main = tmp_path / "mien-gitconfig"
+    main.write_text(render_main_gitconfig(blocks))
+    (home / ".gitconfig").write_text(f"[include]\n\tpath = {main}\n")
+
+    env = {**os.environ, "HOME": str(home), "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+           "GIT_CONFIG_NOSYSTEM": "1"}
+    repo = home / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], env=env, check=True)
+
+    def email_for(url: str) -> str:
+        subprocess.run(["git", "-C", str(repo), "remote", "remove", "origin"],
+                       env=env, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", url],
+                       env=env, check=True)
+        return subprocess.run(["git", "-C", str(repo), "config", "user.email"],
+                              env=env, capture_output=True, text=True).stdout.strip()
+
+    assert email_for("https://github.com/acme-inc/foo.git") == "me@acme.example"
+    assert email_for("ssh://git@github.com/acme-inc/baz.git") == "me@acme.example"
+    assert email_for("git@github.com:acme-inc/bar.git") == "me@acme.example"
+    assert email_for("https://github.com/other/x.git") == ""  # not an owned repo
+
+
 def test_render_main_gitconfig():
     out = render_main_gitconfig([
         ("hasconfig:remote.*.url:**/*github.com/acme/**", "/c/git/work.gitconfig"),
-        ("gitdir:/home/me/ccp/**", "/c/git/work.gitconfig"),
+        ("gitdir:/home/me/proj/**", "/c/git/work.gitconfig"),
     ])
     assert '[includeIf "hasconfig:remote.*.url:**/*github.com/acme/**"]' in out
-    assert '[includeIf "gitdir:/home/me/ccp/**"]' in out
+    assert '[includeIf "gitdir:/home/me/proj/**"]' in out
     assert "path = /c/git/work.gitconfig" in out
