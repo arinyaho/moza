@@ -28,6 +28,8 @@ Treat the config file and the backend manifest as trusted input. Do not import a
 
 **Choosing an identity that acts never trusts the repository.** `mien run`, `exec`, and `which` resolve identity only from your own config — an explicit `MIEN_PROFILE`, or a directory `default_for` scope — never from anything a checked-out repository controls. A profile's `owns_remotes`, which matches a repository's `origin` owner, and the git-author cross-check, which reads the repository's `user.email`, are used *only* by the status line: to display whose repository this is and to warn when the active identity — or the email a commit would carry — disagrees. Both are deliberately kept off the acting path, because a clone controls its own `origin` and its repo-local `user.email` and could otherwise steer which identity a command runs as. Displaying a warning spends no credential and cannot mis-act, so the advisory use stays safe even against a crafted remote or a planted `user.email`.
 
+`mien guard` uses the same repo signals to *block* an action, and that direction is safe where selecting an identity is not: a crafted `origin` can at worst trigger a false refusal — an annoyance you override with `MIEN_GUARD=off` — never a mis-action. The gate is fail-open by design (it allows on any uncertainty or internal error), so it is a guard rail, not a guarantee: it stops the mistakes it is sure about and never wedges a legitimate action.
+
 **Non-repudiation: no protections attempted.** `mien` keeps no audit log. Nothing records which identity was activated when, or which command ran under it.
 
 ## What is stored where

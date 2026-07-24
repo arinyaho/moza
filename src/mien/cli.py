@@ -42,7 +42,7 @@ from mien.resolve import (AmbiguousScope, claimed_profile, git_author_email,
 from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
 from mien.secret_naming import render_name
 from mien.shell import emit_unset, emit_use, render_shell_init
-from mien.statusline import render_segment
+from mien.statusline import guard_reason, render_segment
 
 
 GOOGLE_DEFAULT_SCOPES = [
@@ -1295,6 +1295,69 @@ def statusline_cmd() -> None:
         )
     except Exception:
         return
+
+
+_GUARD_OFF = {"off", "0", "false", "no"}
+
+
+@main.command("guard")
+@click.option("--force", "-f", is_flag=True, help="Skip the check and exit 0.")
+def guard_cmd(force: bool) -> None:
+    """Refuse to proceed when the identity is confidently wrong for this repo.
+
+    The acting counterpart of `mien statusline`: where the status line *shows* a
+    wrong identity, `guard` *blocks* on it. It exits non-zero — refusing the
+    action — only on a confident mismatch: the active `MIEN_PROFILE`, or the git
+    author a commit here would carry, positively belongs to a different profile
+    than the repository's `origin` owner. It exits 0 (allows) on every
+    uncertainty — no config, an unknown owner, an unrecognized author — so it
+    never blocks on a guess, and on any internal error, so a mien bug can't wedge
+    your commits.
+
+    Wire it as a pre-commit hook to stop a mis-authored commit before it lands:
+
+        echo 'exec mien guard' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+    or chain it before a push (`mien guard && git push`). Override once with
+    `MIEN_GUARD=off` (or `git commit --no-verify` for the hook), or `--force`.
+
+    Using the repository's own signals to *block* is safe: a crafted `origin`
+    can at worst cause a false refusal (an annoyance you can override), never a
+    mis-action — unlike selecting an acting identity, which never trusts the repo.
+    """
+    if force or os.environ.get("MIEN_GUARD", "").strip().lower() in _GUARD_OFF:
+        return
+    try:
+        cfg = load_config()
+        if cfg is None:
+            return
+        cwd = _logical_cwd()
+        env_profile = os.environ.get("MIEN_PROFILE") or None
+        env_known = bool(env_profile and env_profile in cfg.profiles)
+        try:
+            claimed, source = claimed_profile(
+                cfg.profiles, cwd, remote=git_origin_remote(cwd)
+            )
+        except AmbiguousScope:
+            claimed, source = None, None
+        author_email = git_author_email(cwd)
+        author = profile_for_email(cfg.profiles, author_email) if author_email else None
+        reason = guard_reason(
+            env_profile, claimed, source=source or "dir",
+            author_profile=author, env_known=env_known,
+        )
+    except Exception:
+        return  # fail open: never wedge an action because guard itself broke.
+    if reason:
+        click.echo(f"mien: refusing — {reason}.", err=True)
+        click.echo(
+            "  Fix: activate the right profile (`mien-use <profile>`) or correct "
+            "git user.email.\n"
+            "  Override once: MIEN_GUARD=off <command> "
+            "(or `git commit --no-verify` for a hook).",
+            err=True,
+        )
+        raise SystemExit(1)
 
 
 @main.command("run", context_settings={"ignore_unknown_options": True})

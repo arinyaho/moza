@@ -73,3 +73,32 @@ def render_segment(
         return f"{_GREEN}🟢 mien:{active}{_RESET}"
     # Nothing set, and nothing claims this location.
     return f"{_YELLOW}🟡 mien:— no profile here{_RESET}"
+
+
+def guard_reason(
+    env_profile: str | None,
+    claimed_profile: str | None,
+    *,
+    source: str = "dir",
+    author_profile: str | None = None,
+    env_known: bool = True,
+) -> str | None:
+    """Why acting here would be as the wrong identity, or None if it is allowed.
+
+    The gate refuses only on a *confident* mismatch — a known active profile, or a
+    known git author, that positively disagrees with what this place belongs to.
+    It stays silent (returns None) on every uncertainty: nothing claims the place,
+    the active profile is unknown/stale, or the git author matches no profile. A
+    gate that blocked on a guess would train people to bypass it, so it blocks
+    only what it is sure about. Same signals as `render_segment`; this is the
+    acting counterpart of that display.
+    """
+    if not claimed_profile:
+        return None
+    place = (f"this repository belongs to {claimed_profile}"
+             if source == "repo" else f"this directory belongs to {claimed_profile}")
+    if env_profile and env_known and env_profile != claimed_profile:
+        return f"the active identity is {env_profile}, but {place}"
+    if author_profile and author_profile != claimed_profile:
+        return f"a commit here would be authored as {author_profile}, but {place}"
+    return None
