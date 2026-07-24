@@ -202,6 +202,18 @@ For a global hook across every repository, point `core.hooksPath` at a directory
 
 It refuses only what it is sure about: no config, an unknown owner, or an unrecognized author all *allow* (it never blocks on a guess), and any internal error allows too, so a bug can't wedge your commits. Every refusal is overridable — `MIEN_GUARD=off`, `--force`, or `git commit --no-verify` — so it guides rather than traps. Using the repository's own signals to *block* is safe in a way that using them to *act* is not: a crafted `origin` can at worst cause a false refusal you override, never a mis-action.
 
+## Commit as the right you — natively
+
+Blocking a mis-authored commit is the backstop; the better fix is git never producing one. `mien git sync` reads each profile's `owns_remotes` and approved `.mien` workspaces and generates git `includeIf` rules — by repository owner and by directory — so git itself stamps the correct `user.email`/`user.name` in every repo an identity owns:
+
+```bash
+mien git sync
+# git email for work [me@acme.example]: ⏎
+# git name for work [acme-me]: ⏎
+```
+
+It asks for a profile's git identity the first time it needs it (defaulting to the account email and GitHub username) and saves it, then writes the rules and includes them from `~/.gitconfig`. From then on a commit in an `acme-inc` repo is authored as `work` and one in a personal repo as you — with no global default and no per-repo setup. Verified against real `git config` resolution for `https://`, `ssh://`, and `git@…:` remotes. (The generated files are under `~/.config/mien/`; regenerate any time with `mien git sync`.)
+
 ## Ambient per-project env
 
 Some env vars (e.g. `AWS_PROFILE`) are handy set automatically just by `cd`-ing into a project directory, without running `mien use`. Configure them under a profile's `project_env`, then materialize them:

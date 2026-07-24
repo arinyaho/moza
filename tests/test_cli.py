@@ -213,6 +213,67 @@ def test_changing_the_declaration_reblocks_until_reapproved(tmp_path, monkeypatc
     assert result.exit_code != 0 and "not allowed" in result.output
 
 
+def test_git_sync_writes_includeif_from_owns_remotes(tmp_path, monkeypatch):
+    from mien.config import (BackendConfig, Config, GoogleService, Profile,
+                             SecretNaming, save_config)
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr("mien.cli._ensure_git_include", lambda _p: True)
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(
+            name="work", owns_remotes=["github.com/acme-inc/*"],
+            git_email="me@acme.example", git_name="acme-me")},
+    ))
+    result = CliRunner().invoke(main, ["git", "sync"])
+    assert result.exit_code == 0, result.output
+    main_gc = (tmp_path / "gitconfig").read_text()
+    assert "hasconfig:remote.*.url:**/*github.com/acme-inc/**" in main_gc
+    assert "hasconfig:remote.*.url:**github.com:acme-inc/**" in main_gc
+    prof_gc = (tmp_path / "git" / "work.gitconfig").read_text()
+    assert "email = me@acme.example" in prof_gc and "name = acme-me" in prof_gc
+
+
+def test_git_sync_asks_for_a_missing_git_email_and_saves_it(tmp_path, monkeypatch):
+    from mien.config import (BackendConfig, Config, GoogleService, Profile,
+                             SecretNaming, load_config, save_config)
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr("mien.cli._ensure_git_include", lambda _p: True)
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(
+            name="work", owns_remotes=["github.com/acme-inc/*"],
+            google=GoogleService(
+                email="me@acme.example", oauth_client_id="c",
+                oauth_client_secret_ref=None, refresh_token_ref=None, adc_ref=None,
+                gcloud_config_name="work", default_project=None,
+                gcloud_login_required=True))},
+    ))
+    # Accept the offered defaults (google email, github-less → email local part).
+    result = CliRunner().invoke(main, ["git", "sync"], input="\n\n")
+    assert result.exit_code == 0, result.output
+    saved = load_config().profiles["work"]
+    assert saved.git_email == "me@acme.example"  # persisted after the prompt
+    assert "email = me@acme.example" in (tmp_path / "git" / "work.gitconfig").read_text()
+
+
+def test_git_sync_errors_when_nothing_to_sync(tmp_path, monkeypatch):
+    from mien.config import (BackendConfig, Config, Profile, SecretNaming,
+                             save_config)
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "config.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(name="work")},  # no owns_remotes, no .mien
+    ))
+    result = CliRunner().invoke(main, ["git", "sync"])
+    assert result.exit_code != 0 and "nothing to sync" in result.output
+
+
 def _github_profile(runner, mien_cfg, mocker, username="octocat"):
     mocker.patch("mien.cli.load_backend").return_value.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nmien-\n")

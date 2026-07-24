@@ -37,8 +37,13 @@ from mien.config import (
 from mien.env import build_env
 from mien.manifest import MANIFEST_SECRET_NAME, is_cloud_backend, pull_manifest, push_manifest
 from mien.oauth import exchange_refresh_token, google_installed_app_flow
-from mien.project import (ensure_gitignored, find_declaration, is_allowed,
-                          record_allow, write_declaration)
+from mien.gitsync import (default_git_email, default_git_name, git_identity,
+                          gitdir_pattern, hasconfig_patterns,
+                          main_gitconfig_path, profile_gitconfig_path,
+                          render_main_gitconfig, render_profile_gitconfig)
+from mien.project import (allowed_declarations, ensure_gitignored,
+                          find_declaration, is_allowed, record_allow,
+                          write_declaration)
 from mien.resolve import (AmbiguousScope, claimed_profile, git_author_email,
                           git_origin_remote, profile_for_email, resolve_profile)
 from mien.verify import Status, probe_aws, probe_github, probe_google, run_probe_safely
@@ -1069,6 +1074,97 @@ def push_cmd() -> None:
     click.echo("pushed config manifest to backend")
 
 
+@main.group("git", cls=MienGroup)
+def git_group() -> None:
+    """Wire git to author commits as the right identity."""
+
+
+def _ensure_git_include(path: str) -> bool:
+    """Add ``path`` to the user's global git includes, idempotently. Returns True
+    if it added it, False if already present or git could not be reached."""
+    try:
+        got = subprocess.run(
+            ["git", "config", "--global", "--get-all", "include.path"],
+            capture_output=True, text=True, timeout=5)
+        present = path in got.stdout.split() if got.returncode == 0 else False
+        if present:
+            return False
+        subprocess.run(["git", "config", "--global", "--add", "include.path", path],
+                       check=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+@git_group.command("sync")
+def git_sync_cmd() -> None:
+    """Generate git `includeIf` config so commits are authored per identity.
+
+    For every profile that owns repositories (`owns_remotes`) or workspaces
+    (approved `.mien`), writes a gitconfig with its `[user] email`/`name` and an
+    `includeIf` rule pointing at it — by repo owner and by workspace directory —
+    then includes it from `~/.gitconfig`. Asks for a profile's git email/name the
+    first time it is needed (defaulting to the account email and GitHub username)
+    and saves it, so `git commit` then stamps the right author with no global
+    default and no per-repo setup.
+    """
+    from collections import defaultdict
+    cfg = _require_config()
+    conditions: dict[str, list[str]] = defaultdict(list)
+    for name, prof in cfg.profiles.items():
+        for remote in prof.owns_remotes:
+            conditions[name].extend(hasconfig_patterns(remote))
+    for decl_path, prof_name in allowed_declarations().items():
+        if prof_name in cfg.profiles:
+            conditions[prof_name].append(
+                gitdir_pattern(str(Path(decl_path).parent)))
+    conditions = {n: c for n, c in conditions.items() if c}
+    if not conditions:
+        raise click.ClickException(
+            "nothing to sync — no owns_remotes and no approved .mien. Add "
+            "owns_remotes to a profile or `mien claim` a workspace first.")
+
+    changed = False
+    for name in conditions:
+        prof = cfg.profiles[name]
+        if not prof.git_email:
+            prof.git_email = click.prompt(
+                f"git email for {name}",
+                default=default_git_email(prof) or "").strip() or None
+            changed = True
+        if prof.git_email and not prof.git_name:
+            prof.git_name = click.prompt(
+                f"git name for {name}",
+                default=default_git_name(prof) or prof.git_email.split("@", 1)[0]
+            ).strip() or None
+            changed = True
+    if changed:
+        save_config(cfg)
+
+    blocks: list[tuple[str, str]] = []
+    for name in sorted(conditions):
+        identity = git_identity(cfg.profiles[name])
+        if not identity:
+            click.echo(f"  skipping {name}: no git email", err=True)
+            continue
+        email, git_name = identity
+        pgc = profile_gitconfig_path(name)
+        pgc.parent.mkdir(parents=True, exist_ok=True)
+        pgc.write_text(render_profile_gitconfig(email, git_name), encoding="utf-8")
+        for condition in conditions[name]:
+            blocks.append((condition, str(pgc)))
+    main = main_gitconfig_path()
+    main.write_text(render_main_gitconfig(blocks), encoding="utf-8")
+    wired = _ensure_git_include(str(main))
+    click.echo(
+        f"wrote {len(blocks)} include rule(s) for {len(conditions)} profile(s) "
+        f"to {main}.")
+    if not wired:
+        click.echo(
+            f"  (ensure ~/.gitconfig includes it: git config --global --add "
+            f"include.path {main})", err=True)
+
+
 @main.group("env", cls=MienGroup)
 def env_group() -> None:
     """Manage ambient per-project env (non-interactive zsh only)."""
@@ -1352,6 +1448,9 @@ def claim_cmd(profile: str | None) -> None:
     click.echo(
         f"this directory now acts as {profile}: wrote {decl_path}, approved it, "
         "and git-ignored .mien globally.")
+    click.echo(
+        f"  tip: `mien git sync` to also author git commits here as {profile}.",
+        err=True)
 
 
 def _statusline_cwd() -> str:
