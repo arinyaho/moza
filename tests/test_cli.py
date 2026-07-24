@@ -61,6 +61,74 @@ def test_whoami_unknown_profile(runner, mien_cfg):
     assert "not found" in result.output.lower()
 
 
+def _rich_profile_cfg(tmp_path, monkeypatch):
+    from mien.config import (AtlassianService, AWSService, BackendConfig, Config,
+                             GitHubService, GoogleService, NotionService, Profile,
+                             SecretNaming, SlackWorkspace, save_config)
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "c.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"work": Profile(
+            name="work",
+            google=GoogleService(email="me@acme.example", oauth_client_id="c",
+                                 oauth_client_secret_ref=None, refresh_token_ref=None,
+                                 adc_ref=None, gcloud_config_name="work",
+                                 default_project=None, gcloud_login_required=True),
+            github=GitHubService(username="octocat", host="github.com", token_ref="r"),
+            slack=[SlackWorkspace(workspace="team-a", team_id=None, user_token_ref="r")],
+            aws=AWSService(profile="acme", region="us-west-1",
+                           access_key_id_ref=None, secret_access_key_ref=None),
+            atlassian=AtlassianService(email="me@acme.example", api_token_ref="r",
+                                       base_url="https://acme.atlassian.net"),
+            notion=NotionService(api_token_ref="r"),
+            owns_remotes=["github.com/acme-*/*"],
+            default_for=["*/Projects/acme*"],
+        )},
+    ))
+
+
+def test_whoami_card_shows_the_whole_bundled_identity(runner, tmp_path, monkeypatch):
+    _rich_profile_cfg(tmp_path, monkeypatch)
+    result = runner.invoke(main, ["whoami", "work"])
+    assert result.exit_code == 0
+    out = result.output
+    assert "one identity, every provider" in out
+    for token in ["me@acme.example", "octocat", "team-a", "acme (us-west-1)",
+                  "acme.atlassian.net", "notion", "github.com/acme-*/*",
+                  "*/Projects/acme*"]:
+        assert token in out, token
+
+
+def test_whoami_card_omits_absent_providers(runner, tmp_path, monkeypatch):
+    from mien.config import (BackendConfig, Config, GitHubService, Profile,
+                             SecretNaming, save_config)
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "c.json"))
+    save_config(Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="d", slack_token="s"),
+        profiles={"solo": Profile(
+            name="solo",
+            github=GitHubService(username="octocat", host="github.com", token_ref="r"))},
+    ))
+    result = runner.invoke(main, ["whoami", "solo"])
+    assert result.exit_code == 0
+    assert "github" in result.output and "octocat" in result.output
+    # No google/aws/slack lines for a profile that doesn't have them.
+    assert "google" not in result.output and "aws" not in result.output
+
+
+def test_whoami_json_flag_still_emits_machine_readable(runner, tmp_path, monkeypatch):
+    _rich_profile_cfg(tmp_path, monkeypatch)
+    result = runner.invoke(main, ["whoami", "work", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["name"] == "work" and data["github"] == "octocat"
+    assert data["owns_remotes"] == ["github.com/acme-*/*"]
+
+
 def _github_profile(runner, mien_cfg, mocker, username="octocat"):
     mocker.patch("mien.cli.load_backend").return_value.put.return_value = "ref://gh"
     runner.invoke(main, ["init"], input="3\nmien-\n")

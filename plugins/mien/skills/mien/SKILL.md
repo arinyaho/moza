@@ -51,7 +51,7 @@ Use `$MIEN` instead of `mien` in all subsequent commands.
 ```
 $MIEN list                          # see profiles
 $MIEN status                        # what is active in *this* shell
-$MIEN whoami [<profile>]            # configured identity; add --live to verify against providers
+$MIEN whoami [<profile>]            # the whole bundled identity as a card; --json for machine form; --live to verify
 $MIEN use <profile>                 # prints a `source …; rm …` loader; eval to activate (same call only)
 $MIEN exec <profile> -- <cmd...>    # run cmd with the profile's env — prefer this
 $MIEN which                         # profile claimed by the current directory
