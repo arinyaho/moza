@@ -489,6 +489,45 @@ def status_cmd() -> None:
             click.echo(f"  {var}={shown}")
 
 
+def _identity_card(prof: Profile) -> str:
+    """One profile as one identity: every provider it bundles, in a single view.
+
+    mien's unit is a whole human identity — cloud plus developer accounts plus
+    user OAuth plus SaaS — not a secret. The card reifies that: it lists only the
+    providers this profile actually is, so `work` reads as one self across all of
+    them rather than a list of services. It shows names and selectors only, never
+    a token.
+    """
+    rows: list[tuple[str, str]] = []
+    if prof.google:
+        rows.append(("google", prof.google.email))
+    if prof.github:
+        rows.append(("github", prof.github.username))
+    if prof.slack:
+        rows.append(("slack", ", ".join(w.workspace for w in prof.slack)))
+    if prof.aws:
+        region = f" ({prof.aws.region})" if prof.aws.region else ""
+        rows.append(("aws", f"{prof.aws.profile or 'access key'}{region}"))
+    if prof.oci:
+        rows.append(("oci", prof.oci.profile or prof.oci.config_file or "configured"))
+    if prof.atlassian:
+        rows.append(("atlassian", f"{prof.atlassian.email} · {prof.atlassian.base_url}"))
+    if prof.notion:
+        rows.append(("notion", "configured"))
+    if prof.owns_remotes:
+        rows.append(("owns", ", ".join(prof.owns_remotes)))
+    if prof.default_for:
+        rows.append(("claims", ", ".join(prof.default_for)))
+
+    lines = [f"\033[1m{prof.name}\033[0m — one identity, every provider"]
+    if rows:
+        width = max(len(label) for label, _ in rows)
+        lines += [f"  {label.ljust(width)}  {value}" for label, value in rows]
+    else:
+        lines.append("  (no providers configured yet)")
+    return "\n".join(lines)
+
+
 @main.command("whoami")
 @click.argument("profile", required=False)
 @click.option(
@@ -496,7 +535,9 @@ def status_cmd() -> None:
     help="Ask each provider who the profile actually authenticates as, and "
     "compare to the config. Exits non-zero on any mismatch or dead credential.",
 )
-def whoami_cmd(profile: str | None, live: bool) -> None:
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit the identity as JSON instead of the human card.")
+def whoami_cmd(profile: str | None, live: bool, as_json: bool) -> None:
     cfg = _require_config()
     name = profile or os.environ.get("MIEN_PROFILE")
     if not name:
@@ -509,16 +550,22 @@ def whoami_cmd(profile: str | None, live: bool) -> None:
         _whoami_live(cfg, prof)
         return
 
-    click.echo(json.dumps({
-        "name": prof.name,
-        "google": prof.google.email if prof.google else None,
-        "github": prof.github.username if prof.github else None,
-        "slack": [w.workspace for w in prof.slack],
-        "aws": {"profile": prof.aws.profile, "region": prof.aws.region} if prof.aws else None,
-        "oci": {"profile": prof.oci.profile} if prof.oci else None,
-        "atlassian": {"email": prof.atlassian.email, "base_url": prof.atlassian.base_url} if prof.atlassian else None,
-        "notion": True if prof.notion else None,
-    }, indent=2))
+    if as_json:
+        click.echo(json.dumps({
+            "name": prof.name,
+            "google": prof.google.email if prof.google else None,
+            "github": prof.github.username if prof.github else None,
+            "slack": [w.workspace for w in prof.slack],
+            "aws": {"profile": prof.aws.profile, "region": prof.aws.region} if prof.aws else None,
+            "oci": {"profile": prof.oci.profile} if prof.oci else None,
+            "atlassian": {"email": prof.atlassian.email, "base_url": prof.atlassian.base_url} if prof.atlassian else None,
+            "notion": True if prof.notion else None,
+            "owns_remotes": list(prof.owns_remotes),
+            "default_for": list(prof.default_for),
+        }, indent=2))
+        return
+
+    click.echo(_identity_card(prof))
 
 
 def _whoami_live(cfg: Config, prof: Profile) -> None:

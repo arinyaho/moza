@@ -81,12 +81,16 @@ invocation. See the skill's *Activation pattern* section.
 
 ## Verify the live identity before something destructive
 
-`mien whoami` prints what the config says a profile is — fast, offline, no network. `mien
-whoami --live` goes further: it asks GitHub, AWS, and Google who the profile *actually*
-authenticates as and compares that to the config.
+`mien whoami` prints what the config says a profile is — fast, offline, no network — as a
+card of the whole bundled identity: every provider that profile is (Google, GitHub, Slack,
+AWS, OCI, Atlassian, Notion), plus the remotes and directories it owns, in one view. It
+shows names and selectors only, never a token. Add `--json` for the machine-readable form.
+`mien whoami --live` goes further: it asks GitHub, AWS, and Google who the profile
+*actually* authenticates as and compares that to the config.
 
 ```bash
-mien whoami personal            # offline: what the profile claims to be
+mien whoami personal            # offline: the whole identity as a card
+mien whoami personal --json     # offline: the same, machine-readable
 mien whoami --live personal     # verified: who the providers say you are
 ```
 
