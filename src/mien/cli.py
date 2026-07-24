@@ -1315,15 +1315,35 @@ def allow_cmd() -> None:
 
 
 @main.command("claim")
-@click.argument("profile")
-def claim_cmd(profile: str) -> None:
+@click.argument("profile", required=False)
+def claim_cmd(profile: str | None) -> None:
     """Bind this directory to a profile in one step.
 
-    Writes a local `.mien` naming <profile>, adds `.mien` to your global git
+    Writes a local `.mien` naming the profile, adds `.mien` to your global git
     ignore, and approves it — so `mien run`/`which` here (and everything beneath)
-    act as <profile> with no central scope to maintain.
+    act as that profile with no central scope to maintain.
+
+    Called with no argument, it is the friendly front door: if a `.mien` already
+    names a profile here it just approves it; otherwise it asks which of your
+    configured identities this workspace is. Pass the profile explicitly in a
+    non-interactive shell (an agent, a script).
     """
     cfg = _require_config()
+    if not cfg.profiles:
+        raise click.ClickException(
+            "no profiles configured yet. Set one up with `mien login` first.")
+    if profile is None:
+        declared, _ = find_declaration(_logical_cwd())
+        if declared and declared in cfg.profiles:
+            profile = declared
+            click.echo(f"found a .mien declaring {declared!r} — approving it.")
+        else:
+            names = sorted(cfg.profiles)
+            click.echo("Which identity is this workspace?")
+            for index, name in enumerate(names, 1):
+                click.echo(f"  {index}. {name}")
+            picked = click.prompt("Pick", type=click.IntRange(1, len(names)))
+            profile = names[picked - 1]
     if profile not in cfg.profiles:
         raise click.ClickException(f"profile {profile!r} not found")
     decl_path = write_declaration(_logical_cwd(), profile)
