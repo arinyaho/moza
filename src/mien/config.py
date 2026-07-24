@@ -95,6 +95,13 @@ class Profile:
     # from project_env: that maps directories to environment values, this maps
     # directories to *who you are*, and the two are set independently.
     default_for: list[str] = field(default_factory=list)
+    # Git remote globs this profile owns, matched against a repo's `origin` in a
+    # canonical `host/path` form (scheme, `user@`, and a trailing `.git` stripped;
+    # an ssh `:` normalized to `/`) — e.g. ["github.com/me/*",
+    # "github.com/me-labs/*"]. This claims identity by *what the repo is* rather
+    # than where it sits, so it fits repositories kept side by side with no
+    # per-employer directory convention.
+    owns_remotes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -159,6 +166,7 @@ def _config_to_dict(cfg: Config) -> dict:
             "notion": asdict(prof.notion) if prof.notion else None,
             "project_env": [asdict(s) for s in prof.project_env],
             "default_for": list(prof.default_for),
+            "owns_remotes": list(prof.owns_remotes),
         }
     return {
         "$schema_version": cfg.schema_version,
@@ -169,24 +177,27 @@ def _config_to_dict(cfg: Config) -> dict:
     }
 
 
-def _default_for_from_raw(profile_name: str, value: object) -> list[str]:
-    """Validate a profile's ``default_for`` instead of coercing it.
+def _glob_list_from_raw(
+    profile_name: str, field_name: str, kind: str, value: object, example: str
+) -> list[str]:
+    """Validate a profile's list-of-globs field instead of coercing it.
 
     A bare string would otherwise be exploded into one glob per character by
-    ``list()``, and the resulting ``"*"`` element claims every directory on the
-    machine -- silently routing credentials to the wrong profile.
+    ``list()``, and the resulting ``"*"`` element claims everything -- silently
+    routing credentials to the wrong profile. Shared by ``default_for``
+    (``kind="directory"``) and ``owns_remotes`` (``kind="remote"``).
     """
     if value is None:
         return []
     if not isinstance(value, list):
         raise ValueError(
-            f"profile {profile_name!r}: default_for must be a list of directory glob "
-            f"strings (e.g. [\"*/Projects/acme\"]), got {type(value).__name__}: {value!r}"
+            f"profile {profile_name!r}: {field_name} must be a list of {kind} glob "
+            f"strings (e.g. [{example!r}]), got {type(value).__name__}: {value!r}"
         )
     for item in value:
         if not isinstance(item, str):
             raise ValueError(
-                f"profile {profile_name!r}: default_for entries must be directory glob "
+                f"profile {profile_name!r}: {field_name} entries must be {kind} glob "
                 f"strings, got {type(item).__name__}: {item!r}"
             )
     return list(value)
@@ -226,7 +237,10 @@ def _config_from_dict(raw: dict) -> Config:
             atlassian=atlassian,
             notion=notion,
             project_env=project_env,
-            default_for=_default_for_from_raw(name, p.get("default_for")),
+            default_for=_glob_list_from_raw(
+                name, "default_for", "directory", p.get("default_for"), "*/Projects/acme"),
+            owns_remotes=_glob_list_from_raw(
+                name, "owns_remotes", "remote", p.get("owns_remotes"), "github.com/acme/*"),
         )
 
     return Config(

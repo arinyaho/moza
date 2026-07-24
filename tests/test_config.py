@@ -68,6 +68,34 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
     assert loaded == cfg
 
 
+def test_owns_remotes_survives_a_roundtrip_and_rejects_a_bare_string(monkeypatch, tmp_path):
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "c.json"))
+    cfg = Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="x", slack_token="y"),
+        profiles={"personal": Profile(
+            name="personal",
+            owns_remotes=["github.com/me/*", "github.com/me-labs/*"],
+        )},
+    )
+    save_config(cfg)
+    assert load_config() == cfg
+    assert load_config().profiles["personal"].owns_remotes == [
+        "github.com/me/*", "github.com/me-labs/*"]
+
+    # A bare string must be rejected, not exploded into one glob per character
+    # (a "*" element would claim every remote).
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({
+        "$schema_version": 1,
+        "secrets_backend": {"type": "macos_keychain"},
+        "profiles": {"x": {"owns_remotes": "github.com/x/*"}},
+    }))
+    with pytest.raises(ValueError, match="owns_remotes"):
+        load_config()
+
+
 def test_save_creates_parent_dir_and_chmods_600(monkeypatch, tmp_path):
     target = tmp_path / "deep" / "nested" / "config.json"
     monkeypatch.setenv("MIEN_CONFIG", str(target))

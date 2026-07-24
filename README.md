@@ -131,12 +131,24 @@ The identity you would act as is worth seeing *before* you act, not after a pers
 ```
 
 ```
-🟢 mien:work                       # the directory's identity, and it agrees with what's active
-🔴 mien:personal ✗ dir wants work  # personal is active, but this directory belongs to work
-🟡 mien:— no profile here          # nothing set, and no scope claims this directory
+🟢 mien:work                       # this place's identity agrees with what's active
+🔴 mien:personal ✗ repo is work's  # personal is active, but this repo belongs to work
+🔴 mien:personal ✗ dir wants work  # ...or a directory scope claims work
+🟡 mien:— no profile here          # nothing set, and nothing claims this place
 ```
 
-The red case is the one that matters: an agent session that inherited `personal` from the shell it launched in, sitting in a `work` directory, is exactly how the wrong identity commits. The segment is only as sharp as your `default_for` scopes — it can only warn about directories a profile actually claims. It reads config names and scopes only, never a token, so it is safe to run at status-line frequency, and it prints nothing when `mien` is not configured.
+The red case is the one that matters: an agent session that inherited `personal` from the shell it launched in, sitting in a `work` repository, is exactly how the wrong identity commits.
+
+It figures out whose place this is from two signals — the repository's `origin` owner (`owns_remotes`) and directory scopes (`default_for`) — so it works whether or not you organize by directory. If you keep repositories side by side with no per-employer folder, the remote owner is what makes it sharp:
+
+```json
+"profiles": {
+  "work":     { "owns_remotes": ["github.com/acme-*/*"] },
+  "personal": { "owns_remotes": ["github.com/me/*", "github.com/me-labs/*"] }
+}
+```
+
+A profile can own several remote patterns — a personal account and the organizations it also manages. The remote owner is **advisory only**: it drives the status line's display and warning, never `run`/`exec` (which *act*), because a checked-out repository controls its own remote and must not be able to choose the identity that acts. It reads config names and scopes only, never a token, so it is safe to run at status-line frequency, and it prints nothing when `mien` is not configured.
 
 ## Ambient per-project env
 
