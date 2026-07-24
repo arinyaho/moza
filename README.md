@@ -153,6 +153,25 @@ It figures out whose place this is from two signals — the repository's `origin
 
 A profile can own several remote patterns — a personal account and the organizations it also manages. The remote owner is **advisory only**: it drives the status line's display and warning, never `run`/`exec` (which *act*), because a checked-out repository controls its own remote and must not be able to choose the identity that acts. It reads config names and scopes only, never a token, so it is safe to run at status-line frequency, and it prints nothing when `mien` is not configured.
 
+## Refuse to act as the wrong you
+
+The status line *shows* a wrong identity; `mien guard` *stops* it. It exits non-zero — refusing the action — only when the identity is confidently wrong for the repository: the active profile, or the git author a commit would carry, positively belongs to a different profile than the repository's owner. Wire it as a pre-commit hook and a mis-authored commit never lands:
+
+```bash
+echo 'exec mien guard' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
+```
+$ git commit -m "wip"
+mien: refusing — a commit here would be authored as personal, but this repository belongs to work.
+  Fix: activate the right profile (`mien-use <profile>`) or correct git user.email.
+  Override once: MIEN_GUARD=off <command> (or `git commit --no-verify` for a hook).
+```
+
+For a global hook across every repository, point `core.hooksPath` at a directory holding a `pre-commit` that runs `exec mien guard`. Chain it before other risky actions too — `mien guard && git push`.
+
+It refuses only what it is sure about: no config, an unknown owner, or an unrecognized author all *allow* (it never blocks on a guess), and any internal error allows too, so a bug can't wedge your commits. Every refusal is overridable — `MIEN_GUARD=off`, `--force`, or `git commit --no-verify` — so it guides rather than traps. Using the repository's own signals to *block* is safe in a way that using them to *act* is not: a crafted `origin` can at worst cause a false refusal you override, never a mis-action.
+
 ## Ambient per-project env
 
 Some env vars (e.g. `AWS_PROFILE`) are handy set automatically just by `cd`-ing into a project directory, without running `mien use`. Configure them under a profile's `project_env`, then materialize them:

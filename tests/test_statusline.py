@@ -5,7 +5,34 @@ from click.testing import CliRunner
 from mien.cli import main
 from mien.config import (BackendConfig, Config, Profile, SecretNaming,
                          save_config)
-from mien.statusline import render_segment
+from mien.statusline import guard_reason, render_segment
+
+
+class TestGuardReason:
+    def test_active_identity_mismatch_blocks(self):
+        r = guard_reason("personal", "work", source="repo")
+        assert r and "personal" in r and "work" in r and "belongs to work" in r
+
+    def test_wrong_git_author_blocks_even_with_nothing_active(self):
+        r = guard_reason(None, "work", source="repo", author_profile="personal")
+        assert r and "authored as personal" in r and "work" in r
+
+    def test_author_mismatch_blocks_even_when_active_profile_is_right(self):
+        r = guard_reason("work", "work", source="repo", author_profile="personal")
+        assert r and "authored as personal" in r
+
+    def test_everything_agrees_allows(self):
+        assert guard_reason("work", "work", source="repo", author_profile="work") is None
+
+    def test_nothing_claims_the_place_allows(self):
+        assert guard_reason("personal", None, author_profile="personal") is None
+
+    def test_a_stale_unknown_active_profile_does_not_block(self):
+        # env_known=False → we can't say who you are, so we don't refuse.
+        assert guard_reason("ghost", "work", source="repo", env_known=False) is None
+
+    def test_an_unrecognized_author_does_not_block(self):
+        assert guard_reason(None, "work", source="repo", author_profile=None) is None
 
 
 class TestRenderSegment:
@@ -233,6 +260,92 @@ def test_statusline_does_not_nag_on_an_unknown_git_author(tmp_path, monkeypatch)
                   author_email="someone@nowhere.example")
     assert result.exit_code == 0
     assert "🟢" in result.output and "mien:work" in result.output
+
+
+def _run_guard(cwd, monkeypatch, mien_profile=None, remote=None, author_email=None,
+               guard_env=None, force=False):
+    if mien_profile is None:
+        monkeypatch.delenv("MIEN_PROFILE", raising=False)
+    else:
+        monkeypatch.setenv("MIEN_PROFILE", mien_profile)
+    if guard_env is None:
+        monkeypatch.delenv("MIEN_GUARD", raising=False)
+    else:
+        monkeypatch.setenv("MIEN_GUARD", guard_env)
+    monkeypatch.setattr("mien.cli._logical_cwd", lambda: cwd)
+    monkeypatch.setattr("mien.cli.git_origin_remote", lambda _cwd: remote)
+    monkeypatch.setattr("mien.cli.git_author_email", lambda _cwd: author_email)
+    args = ["guard", "--force"] if force else ["guard"]
+    return CliRunner().invoke(main, args)
+
+
+def test_guard_blocks_a_wrong_active_identity(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch,
+                       work=["github.com/acme-*/*"], personal=["github.com/me/*"])
+    result = _run_guard("/flat/api", monkeypatch, mien_profile="personal",
+                        remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 1
+    assert "refusing" in result.output and "personal" in result.output
+
+
+def test_guard_blocks_a_wrong_commit_author_with_nothing_active(tmp_path, monkeypatch):
+    from mien.config import GoogleService
+    _write_cfg_full(tmp_path, monkeypatch, {
+        "work": Profile(name="work", owns_remotes=["github.com/acme-*/*"],
+                        google=GoogleService(
+                            email="me@acme.example", oauth_client_id="c",
+                            oauth_client_secret_ref=None, refresh_token_ref=None,
+                            adc_ref=None, gcloud_config_name="work",
+                            default_project=None, gcloud_login_required=True)),
+        "personal": Profile(name="personal", google=GoogleService(
+                            email="me@personal.example", oauth_client_id="c",
+                            oauth_client_secret_ref=None, refresh_token_ref=None,
+                            adc_ref=None, gcloud_config_name="personal",
+                            default_project=None, gcloud_login_required=True)),
+    })
+    result = _run_guard("/flat/api", monkeypatch,
+                        remote="https://github.com/acme-core/api.git",
+                        author_email="me@personal.example")
+    assert result.exit_code == 1
+    assert "authored as personal" in result.output
+
+
+def test_guard_allows_when_consistent(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch, work=["github.com/acme-*/*"])
+    result = _run_guard("/flat/api", monkeypatch, mien_profile="work",
+                        remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0
+    assert result.output.strip() == ""
+
+
+def test_guard_allows_on_an_unknown_owner(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch, work=["github.com/acme-*/*"])
+    result = _run_guard("/flat/api", monkeypatch, mien_profile="personal",
+                        remote="https://github.com/nobody/x.git")
+    assert result.exit_code == 0
+
+
+def test_guard_override_via_env_lets_it_through(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch,
+                       work=["github.com/acme-*/*"], personal=["github.com/me/*"])
+    result = _run_guard("/flat/api", monkeypatch, mien_profile="personal",
+                        remote="https://github.com/acme-core/api.git", guard_env="off")
+    assert result.exit_code == 0
+
+
+def test_guard_force_flag_lets_it_through(tmp_path, monkeypatch):
+    _write_cfg_remotes(tmp_path, monkeypatch,
+                       work=["github.com/acme-*/*"], personal=["github.com/me/*"])
+    result = _run_guard("/flat/api", monkeypatch, mien_profile="personal",
+                        remote="https://github.com/acme-core/api.git", force=True)
+    assert result.exit_code == 0
+
+
+def test_guard_allows_when_mien_is_unconfigured(tmp_path, monkeypatch):
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "nope.json"))
+    result = _run_guard("/flat/api", monkeypatch, mien_profile="personal",
+                        remote="https://github.com/acme-core/api.git")
+    assert result.exit_code == 0
 
 
 def test_statusline_remote_owner_beats_a_directory_scope(tmp_path, monkeypatch):
