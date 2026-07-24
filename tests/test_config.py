@@ -96,6 +96,24 @@ def test_owns_remotes_survives_a_roundtrip_and_rejects_a_bare_string(monkeypatch
         load_config()
 
 
+def test_git_identity_fields_survive_a_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setenv("MIEN_CONFIG", str(tmp_path / "c.json"))
+    cfg = Config(
+        schema_version=1,
+        secrets_backend=BackendConfig(type="macos_keychain", options={}),
+        bootstrap={}, secret_naming=SecretNaming(default="x", slack_token="y"),
+        profiles={"work": Profile(name="work", git_email="me@x.example",
+                                  git_name="Me")},
+    )
+    save_config(cfg)
+    loaded = load_config()
+    assert loaded == cfg
+    assert loaded.profiles["work"].git_email == "me@x.example"
+    assert loaded.profiles["work"].git_name == "Me"
+    # Absent by default.
+    assert Profile(name="p").git_email is None
+
+
 def test_save_creates_parent_dir_and_chmods_600(monkeypatch, tmp_path):
     target = tmp_path / "deep" / "nested" / "config.json"
     monkeypatch.setenv("MIEN_CONFIG", str(target))

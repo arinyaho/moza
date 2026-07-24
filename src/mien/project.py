@@ -67,6 +67,12 @@ def _load_allowed() -> dict[str, str]:
     return data if isinstance(data, dict) else {}
 
 
+def allowed_declarations() -> dict[str, str]:
+    """Every approved declaration as ``{declaration_path: profile}`` — the source
+    of the workspace directories `git sync` turns into `gitdir` includes."""
+    return _load_allowed()
+
+
 def is_allowed(declaration_path: str, profile: str) -> bool:
     """True only if the user has approved *this* declaration path for *this*
     profile. A different profile at the same path (the file was edited) is not
